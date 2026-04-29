@@ -1,113 +1,38 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finance AI — Login</title>
-  <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance AI - Login</title>
+
+    <link rel="stylesheet" href="css/style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 </head>
 <body>
 
-<div class="login-page">
-  <div class="login-box">
-    <div class="login-logo">
-      <div class="logo-icon">💰</div>
-      <div>
-        <h1>Finance AI</h1>
-        <small>Controle financeiro inteligente</small>
-      </div>
-    </div>
+<div class="login-box">
 
-    <div class="login-tabs">
-      <button class="login-tab active" id="tab-login" onclick="switchTab('login')">Entrar</button>
-      <button class="login-tab" id="tab-register" onclick="switchTab('register')">Criar conta</button>
-    </div>
+    <h1>Finance AI</h1>
 
-    <div id="form-login">
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" id="email" class="form-input" placeholder="seu@email.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input type="password" id="senha" class="form-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')login()">
-      </div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;" onclick="login()" id="btn-login">
-        Entrar
-      </button>
-    </div>
+    <br>
 
-    <div id="form-register" style="display:none">
-      <div class="form-group">
-        <label class="form-label">Nome</label>
-        <input type="text" id="reg-nome" class="form-input" placeholder="Seu nome">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" id="reg-email" class="form-input" placeholder="seu@email.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input type="password" id="reg-senha" class="form-input" placeholder="Mínimo 6 caracteres">
-      </div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;" onclick="register()" id="btn-register">
-        Criar conta
-      </button>
-    </div>
+    <input type="email" id="email" placeholder="Seu email">
 
-    <p class="login-footer">Finance AI © 2026 — Seus dados são privados e seguros.</p>
-  </div>
+    <input type="password" id="senha" placeholder="Senha">
+
+    <br><br>
+
+    <button onclick="login()">Entrar</button>
+
+    <br><br>
+
+    <button onclick="register()">Criar conta</button>
+
 </div>
 
 <script src="js/supabase.js"></script>
-<script>
-function switchTab(tab) {
-  document.getElementById('tab-login').classList.toggle('active', tab==='login');
-  document.getElementById('tab-register').classList.toggle('active', tab==='register');
-  document.getElementById('form-login').style.display = tab==='login' ? 'block' : 'none';
-  document.getElementById('form-register').style.display = tab==='register' ? 'block' : 'none';
-}
+<script src="js/auth.js"></script>
 
-function setLoading(btnId, loading) {
-  const btn = document.getElementById(btnId);
-  btn.innerHTML = loading ? '<span class="spinner"></span>' : (btnId === 'btn-login' ? 'Entrar' : 'Criar conta');
-  btn.disabled = loading;
-}
-
-async function login() {
-  const email = document.getElementById('email').value;
-  const senha = document.getElementById('senha').value;
-  if (!email || !senha) return showMsg('Preencha todos os campos', 'error');
-  setLoading('btn-login', true);
-  const { error } = await client.auth.signInWithPassword({ email, password: senha });
-  setLoading('btn-login', false);
-  if (error) return showMsg(error.message, 'error');
-  window.location.href = 'dashboard.html';
-}
-
-async function register() {
-  const nome = document.getElementById('reg-nome').value;
-  const email = document.getElementById('reg-email').value;
-  const senha = document.getElementById('reg-senha').value;
-  if (!nome || !email || !senha) return showMsg('Preencha todos os campos', 'error');
-  if (senha.length < 6) return showMsg('Senha deve ter no mínimo 6 caracteres', 'error');
-  setLoading('btn-register', true);
-  const { data, error } = await client.auth.signUp({ email, password: senha, options: { data: { nome } } });
-  setLoading('btn-register', false);
-  if (error) return showMsg(error.message, 'error');
-  await client.from('profiles').upsert({ id: data.user.id, nome });
-  showMsg('Conta criada! Verifique seu email.', 'success');
-  switchTab('login');
-}
-
-function showMsg(msg, type) {
-  const div = document.createElement('div');
-  div.className = `toast ${type}`;
-  div.innerHTML = `${type === 'success' ? '✅' : '❌'} ${msg}`;
-  document.body.appendChild(div);
-  setTimeout(() => div.remove(), 4000);
-}
-</script>
 </body>
 </html>

@@ -1,472 +1,104 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finance AI — Dashboard</title>
-  <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance AI</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-<div class="app-wrapper">
+<div class="container">
 
-  <!-- ====== SIDEBAR ====== -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">
-      <div class="logo-mark">
-        <div class="logo-icon">💰</div>
-        <h1>Finance AI</h1>
-      </div>
+    <div class="topbar">
+        <h2>Finance AI</h2>
+        <button onclick="logout()">Sair</button>
     </div>
 
-    <nav class="sidebar-nav">
-      <span class="nav-section-label">Visão geral</span>
-      <button class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-        <span class="nav-icon">📊</span> Dashboard
-      </button>
-      <button class="nav-item" data-page="faturas" onclick="navigate('faturas')">
-        <span class="nav-icon">🧾</span> Faturas
-      </button>
-      <button class="nav-item" data-page="parcelas" onclick="navigate('parcelas')">
-        <span class="nav-icon">📅</span> Parcelas futuras
-      </button>
-
-      <span class="nav-section-label">Gerenciar</span>
-      <button class="nav-item" data-page="cartoes" onclick="navigate('cartoes')">
-        <span class="nav-icon">💳</span> Cartões
-      </button>
-      <button class="nav-item" data-page="receitas" onclick="navigate('receitas')">
-        <span class="nav-icon">💵</span> Receitas
-      </button>
-      <button class="nav-item" data-page="gastos" onclick="navigate('gastos')">
-        <span class="nav-icon">🛍️</span> Gastos
-      </button>
-    </nav>
-
-    <div class="sidebar-bottom">
-      <div class="user-card" id="user-card">
-        <div class="user-avatar" id="user-avatar">?</div>
-        <div>
-          <div class="user-name" id="user-name">Carregando...</div>
-          <div class="user-email" id="user-email"></div>
-        </div>
-      </div>
-      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;justify-content:center;" onclick="logout()">
-        Sair
-      </button>
-    </div>
-  </aside>
-
-  <!-- ====== MAIN ====== -->
-  <div class="main">
-
-    <!-- TOPBAR -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <h2 id="page-title">Dashboard</h2>
-        <p id="page-subtitle">Visão geral das suas finanças</p>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <div class="month-selector">
-          <span style="font-size:16px;">📅</span>
-          <select id="month-select" onchange="onMonthChange()"></select>
-        </div>
-        <button class="btn btn-primary btn-sm" id="topbar-action-btn" onclick="openImportModal()">
-          ⬆️ Importar CSV
-        </button>
-        <button class="btn btn-ghost btn-sm" style="display:none;" id="hamburger" onclick="toggleSidebar()">☰</button>
-      </div>
-    </header>
-
-    <!-- CONTENT -->
-    <div class="content">
-
-      <!-- ============================
-           PAGE: DASHBOARD
-           ============================ -->
-      <div class="page active" id="page-dashboard">
-
-        <!-- KPI Cards -->
-        <div class="grid-4">
-          <div class="card">
-            <div class="card-title">💰 Saldo do mês</div>
-            <div class="card-value" id="kpi-saldo">R$ 0,00</div>
-            <div class="card-delta" id="kpi-saldo-delta"></div>
-          </div>
-          <div class="card">
-            <div class="card-title">📈 Receitas</div>
-            <div class="card-value green" id="kpi-receitas">R$ 0,00</div>
-          </div>
-          <div class="card">
-            <div class="card-title">🧾 Fatura total</div>
-            <div class="card-value red" id="kpi-faturas">R$ 0,00</div>
-          </div>
-          <div class="card">
-            <div class="card-title">🛍️ Gastos manuais</div>
-            <div class="card-value red" id="kpi-gastos">R$ 0,00</div>
-          </div>
-        </div>
-
-        <!-- Charts Row -->
-        <div class="grid-2">
-          <div class="card">
-            <div class="section-header">
-              <h3>Gastos por categoria</h3>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-cat"></canvas>
-            </div>
-          </div>
-          <div class="card">
-            <div class="section-header">
-              <h3>Evolução mensal</h3>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-mensal"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- Top gastos -->
-        <div class="card">
-          <div class="section-header">
-            <h3>Maiores gastos do mês</h3>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Descrição</th>
-                  <th>Categoria</th>
-                  <th>Data</th>
-                  <th>Cartão</th>
-                  <th style="text-align:right">Valor</th>
-                </tr>
-              </thead>
-              <tbody id="top-gastos-list">
-                <tr><td colspan="5"><div class="empty-state"><span class="empty-icon">📭</span><p>Nenhum gasto encontrado</p></div></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div><!-- end page-dashboard -->
-
-
-      <!-- ============================
-           PAGE: FATURAS
-           ============================ -->
-      <div class="page" id="page-faturas">
-        <div class="section-header" style="margin-bottom:20px;">
-          <h3>Itens da fatura — <span id="faturas-mes-label"></span></h3>
-          <button class="btn btn-primary btn-sm" onclick="openImportModal()">⬆️ Importar CSV</button>
-        </div>
-
-        <!-- Resumo por cartão -->
-        <div id="cartoes-resumo" class="grid-3" style="margin-bottom:24px;"></div>
+    <div class="grid">
 
         <div class="card">
-          <div class="section-header">
-            <h3>Todos os lançamentos</h3>
-            <div style="display:flex;gap:8px;">
-              <input type="text" class="form-input" id="busca-fatura" placeholder="🔍 Buscar..." style="width:200px;padding:6px 12px;" oninput="renderFaturasList()">
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descrição</th>
-                  <th>Cartão</th>
-                  <th>Categoria</th>
-                  <th>Parcela</th>
-                  <th style="text-align:right">Valor</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="faturas-list"></tbody>
-            </table>
-          </div>
-        </div>
-      </div><!-- end page-faturas -->
-
-
-      <!-- ============================
-           PAGE: PARCELAS FUTURAS
-           ============================ -->
-      <div class="page" id="page-parcelas">
-        <div class="card" style="margin-bottom:24px;">
-          <h3 style="margin-bottom:8px;">📅 Projeção de parcelas futuras</h3>
-          <p style="color:var(--muted);font-size:14px;">Veja quanto você vai pagar nos próximos meses com base nos parcelamentos detectados no CSV.</p>
+            <h3>Saldo dispon�vel</h3>
+            <div class="value" id="saldo">R$ 0</div>
         </div>
 
-        <div id="timeline-container">
-          <div class="empty-state">
-            <span class="empty-icon">📅</span>
-            <p>Importe um CSV para ver as parcelas futuras</p>
-          </div>
-        </div>
-      </div><!-- end page-parcelas -->
-
-
-      <!-- ============================
-           PAGE: CARTÕES
-           ============================ -->
-      <div class="page" id="page-cartoes">
-        <div class="section-header" style="margin-bottom:20px;">
-          <h3>Meus cartões</h3>
-        </div>
-        <div class="cards-list" id="cartoes-list">
-          <button class="card-add-btn" onclick="openModalCartao()">
-            <span style="font-size:28px;">+</span>
-            <span style="font-size:14px;font-weight:600;">Adicionar cartão</span>
-          </button>
-        </div>
-      </div><!-- end page-cartoes -->
-
-
-      <!-- ============================
-           PAGE: RECEITAS
-           ============================ -->
-      <div class="page" id="page-receitas">
-        <div class="grid-2">
-          <div class="card">
-            <div class="section-header">
-              <h3>Adicionar receita</h3>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Descrição</label>
-              <input type="text" id="rec-desc" class="form-input" placeholder="Ex: Salário, Freelance...">
-            </div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">Valor (R$)</label>
-                <input type="number" id="rec-valor" class="form-input" placeholder="0,00">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Data</label>
-                <input type="date" id="rec-data" class="form-input">
-              </div>
-            </div>
-            <button class="btn btn-primary" onclick="addReceita()">+ Adicionar receita</button>
-          </div>
-          <div class="card">
-            <div class="card-title">💵 Total de receitas — <span id="receitas-mes-label"></span></div>
-            <div class="card-value green" id="total-receitas-page">R$ 0,00</div>
-          </div>
-        </div>
         <div class="card">
-          <div class="section-header"><h3>Receitas do mês</h3></div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right">Valor</th><th></th></tr></thead>
-              <tbody id="receitas-list"></tbody>
-            </table>
-          </div>
+            <h3>Gastos</h3>
+            <div class="value" id="gastosTotal">R$ 0</div>
         </div>
-      </div><!-- end page-receitas -->
 
-
-      <!-- ============================
-           PAGE: GASTOS
-           ============================ -->
-      <div class="page" id="page-gastos">
-        <div class="grid-2">
-          <div class="card">
-            <div class="section-header"><h3>Adicionar gasto manual</h3></div>
-            <div class="form-group">
-              <label class="form-label">Descrição</label>
-              <input type="text" id="gst-desc" class="form-input" placeholder="Ex: Aluguel, Mercado...">
-            </div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">Categoria</label>
-                <select id="gst-cat" class="form-input">
-                  <option>Alimentação</option>
-                  <option>Moradia</option>
-                  <option>Transporte</option>
-                  <option>Saúde</option>
-                  <option>Educação</option>
-                  <option>Lazer</option>
-                  <option>Assinaturas</option>
-                  <option>Outros</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Valor (R$)</label>
-                <input type="number" id="gst-valor" class="form-input" placeholder="0,00">
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Data</label>
-              <input type="date" id="gst-data" class="form-input">
-            </div>
-            <button class="btn btn-primary" onclick="addGasto()">+ Adicionar gasto</button>
-          </div>
-          <div class="card">
-            <div class="card-title">🛍️ Total gastos manuais — <span id="gastos-mes-label"></span></div>
-            <div class="card-value red" id="total-gastos-page">R$ 0,00</div>
-          </div>
-        </div>
         <div class="card">
-          <div class="section-header"><h3>Gastos do mês</h3></div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Descrição</th><th>Categoria</th><th>Data</th><th style="text-align:right">Valor</th><th></th></tr></thead>
-              <tbody id="gastos-list"></tbody>
-            </table>
-          </div>
+            <h3>Faturas pendentes</h3>
+            <div class="value" id="faturasTotal">R$ 0</div>
         </div>
-      </div><!-- end page-gastos -->
-
-    </div><!-- end .content -->
-  </div><!-- end .main -->
-</div><!-- end .app-wrapper -->
 
 
-<!-- ============================
-     MODAL: IMPORTAR CSV
-     ============================ -->
-<div class="modal-overlay" id="modal-import">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>⬆️ Importar CSV do Nubank</h3>
-      <button class="modal-close" onclick="closeModal('modal-import')">✕</button>
     </div>
 
-    <div class="form-group">
-      <label class="form-label">Cartão</label>
-      <select id="import-cartao" class="form-input">
-        <option value="">— Selecione um cartão —</option>
-      </select>
-    </div>
 
-    <div class="form-group">
-      <label class="form-label">Mês de referência</label>
-      <select id="import-mes" class="form-input"></select>
-    </div>
-
-    <div class="upload-zone" id="upload-zone">
-      <input type="file" id="csv-file" accept=".csv" onchange="onFileSelect(this)">
-      <div class="upload-icon">📄</div>
-      <strong id="upload-label">Arraste o CSV aqui ou clique para selecionar</strong>
-      <p>Formato: date, title, amount (padrão Nubank)</p>
-    </div>
-
-    <div id="csv-preview" style="display:none;margin-top:16px;">
-      <div class="section-header">
-        <span style="font-size:13px;color:var(--muted);">Pré-visualização (<span id="csv-count">0</span> itens)</span>
-      </div>
-      <div class="table-wrap" style="max-height:220px;overflow-y:auto;">
-        <table>
-          <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Parcelas</th></tr></thead>
-          <tbody id="csv-preview-list"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('modal-import')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1;justify-content:center;" id="btn-import" onclick="importCSV()" disabled>
-        Importar fatura
-      </button>
-    </div>
-  </div>
-</div>
-
-
-<!-- ============================
-     MODAL: CARTÃO
-     ============================ -->
-<div class="modal-overlay" id="modal-cartao">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="cartao-modal-title">💳 Novo cartão</h3>
-      <button class="modal-close" onclick="closeModal('modal-cartao')">✕</button>
-    </div>
-
-    <input type="hidden" id="cartao-edit-id">
-    <div class="form-group">
-      <label class="form-label">Nome do cartão</label>
-      <input type="text" id="cartao-nome" class="form-input" placeholder="Ex: Nubank, Inter, Itaú...">
-    </div>
-    <div class="form-grid">
-      <div class="form-group">
-        <label class="form-label">Bandeira</label>
-        <select id="cartao-bandeira" class="form-input">
-          <option>Visa</option>
-          <option>Mastercard</option>
-          <option>Elo</option>
-          <option>American Express</option>
-          <option>Hipercard</option>
+    <div class="card">
+        <h2>Adicionar receita</h2>
+        <select id="tipoReceita">
+            <option value="adiantamento">Adiantamento</option>
+            <option value="salario">Sal�rio</option>
+            <option value="outros">Outros</option>
         </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Limite (R$)</label>
-        <input type="number" id="cartao-limite" class="form-input" placeholder="0,00">
-      </div>
+        <input type="number" id="valorReceita" placeholder="Valor">
+        <button onclick="addReceita()">Salvar Receita</button>
     </div>
-    <div class="form-grid">
-      <div class="form-group">
-        <label class="form-label">Dia de vencimento</label>
-        <input type="number" id="cartao-venc" class="form-input" placeholder="10" min="1" max="31">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Dia de fechamento</label>
-        <input type="number" id="cartao-fech" class="form-input" placeholder="3" min="1" max="31">
-      </div>
+
+    <div class="card">
+        <h2>Adicionar gasto</h2>
+        <input type="text" id="descricao" placeholder="Descri��o">
+        <select id="categoria">
+            <option>Alimenta��o</option>
+            <option>Transporte</option>
+            <option>Sa�de</option>
+            <option>Educa��o</option>
+            <option>Lazer</option>
+            <option>Moradia</option>
+            <option>Outros</option>
+        </select>
+        <input type="number" id="valorGasto" placeholder="Valor">
+        <input type="date" id="dataGasto">
+        <button onclick="addGasto()">Salvar gasto</button>
     </div>
-    <div class="form-group">
-      <label class="form-label">Cor do cartão</label>
-      <div class="color-swatches" id="color-swatches"></div>
+
+    <div class="card">
+        <h2>Importar CSV</h2>
+        <input type="file" id="csvFile" accept=".csv">
+        <button onclick="importCSV()">Importar CSV</button>
     </div>
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('modal-cartao')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveCartao()">Salvar cartão</button>
+
+    <div class="card">
+        <h2>Adicionar Fatura</h2>
+        <input type="text" id="fatNome" placeholder="Nome da fatura">
+        <input type="number" id="fatValor" placeholder="Valor">
+        <input type="number" id="fatVenc" placeholder="Dia vencimento">
+        <input type="number" id="fatFech" placeholder="Dia fechamento">
+        <button onclick="addFatura()">Salvar Fatura</button>
     </div>
-  </div>
+
+    <div class="card">
+        <h2>IA Financeira</h2>
+        <div id="iaResposta" class="alert"></div>
+        <button onclick="analisarFinancas()">Analisar finan�as</button>
+    </div>
+
+    <div class="card">
+        <h2>Gr�fico de Gastos</h2>
+        <canvas id="grafico"></canvas>
+    </div>
+
 </div>
-
-
-<!-- ============================
-     MODAL: EDITAR CATEGORIA
-     ============================ -->
-<div class="modal-overlay" id="modal-categoria">
-  <div class="modal" style="max-width:360px;">
-    <div class="modal-header">
-      <h3>Editar categoria</h3>
-      <button class="modal-close" onclick="closeModal('modal-categoria')">✕</button>
-    </div>
-    <input type="hidden" id="cat-item-id">
-    <div class="form-group">
-      <label class="form-label">Categoria</label>
-      <select id="cat-select" class="form-input">
-        <option>Alimentação</option>
-        <option>Moradia</option>
-        <option>Transporte</option>
-        <option>Saúde</option>
-        <option>Educação</option>
-        <option>Lazer</option>
-        <option>Assinaturas</option>
-        <option>Compras</option>
-        <option>Investimentos</option>
-        <option>Outros</option>
-      </select>
-    </div>
-    <div style="display:flex;gap:10px;margin-top:16px;">
-      <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('modal-categoria')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick="saveCategoria()">Salvar</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast-container"></div>
 
 <script src="js/supabase.js"></script>
-<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/dashboard.js"></script>
+<script src="js/csv.js"></script>
+<script src="js/ai.js"></script>
+
 </body>
 </html>
