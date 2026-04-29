@@ -1,35 +1,12 @@
-async function register(){
+// Auth - usado apenas pelo login.html
+// As funcoes login/register estao inline no login.html para evitar conflitos
 
-    const email = document.getElementById("email").value;
-    const senha = document.getElementById("senha").value;
-
-    const { error } = await client.auth.signUp({
-        email,
-        password: senha
-    });
-
-    if(error){
-        alert(error.message);
-        return;
-    }
-
-    alert("Conta criada");
-}
-
-async function login(){
-
-    const email = document.getElementById("email").value;
-    const senha = document.getElementById("senha").value;
-
-    const { error } = await client.auth.signInWithPassword({
-        email,
-        password: senha
-    });
-
-    if(error){
-        alert(error.message);
-        return;
-    }
-
-    window.location.href = "dashboard.html";
+async function logoutGlobal() {
+  const { createClient } = window.supabase;
+  const client = createClient(
+    'https://zqabtcffiptuudxiorzz.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxYWJ0Y2ZmaXB0dXVkeGlvcnp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDcwNjMsImV4cCI6MjA5MzAyMzA2M30.v2NAR0weyLMmwb6Vmez1hutuXN633ONpxe_g8cRUK78'
+  );
+  await client.auth.signOut();
+  window.location.href = 'login.html';
 }
