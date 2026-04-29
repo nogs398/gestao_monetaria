@@ -22,7 +22,7 @@ async function init() {
   currentUser = user;
 
   // Load profile
-  const { data: profile } = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  const { data: profile } = await client.from('profiles').select('*').eq('id', user.id).single();
   const nome = profile?.nome || user.email.split('@')[0];
   document.getElementById('user-name').textContent = nome;
   document.getElementById('user-email').textContent = user.email;
@@ -54,26 +54,22 @@ async function loadAll() {
 }
 
 async function loadCartoes() {
-  const { data, error } = await client.from('cartoes').select('*').eq('user_id', currentUser.id).order('created_at');
-  if (error) { console.warn('Tabela cartoes:', error.message); allCartoes = []; return; }
+  const { data } = await client.from('cartoes').select('*').eq('user_id', currentUser.id).order('created_at');
   allCartoes = data || [];
 }
 
 async function loadFaturas() {
-  const { data, error } = await client.from('faturas_itens').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
-  if (error) { console.warn('Tabela faturas_itens:', error.message); allFaturas = []; return; }
+  const { data } = await client.from('faturas_itens').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
   allFaturas = data || [];
 }
 
 async function loadReceitas() {
-  const { data, error } = await client.from('receitas').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
-  if (error) { console.warn('Tabela receitas:', error.message); allReceitas = []; return; }
+  const { data } = await client.from('receitas').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
   allReceitas = data || [];
 }
 
 async function loadGastos() {
-  const { data, error } = await client.from('gastos').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
-  if (error) { console.warn('Tabela gastos:', error.message); allGastos = []; return; }
+  const { data } = await client.from('gastos').select('*').eq('user_id', currentUser.id).order('data', { ascending: false });
   allGastos = data || [];
 }
 
@@ -132,9 +128,9 @@ function onMonthChange() {
 // DASHBOARD
 // =============================================
 function renderDashboard() {
-  const faturasMes = allFaturas.filter(f => (f.mes_referencia || (f.data||'').substring(0,7)) === currentMes);
-  const receitasMes = allReceitas.filter(r => getMesRefFromReceita(r) === currentMes);
-  const gastosMes = allGastos.filter(g => getMesRefFromGasto(g) === currentMes);
+  const faturasMes = allFaturas.filter(f => f.mes_referencia === currentMes);
+  const receitasMes = allReceitas.filter(r => r.mes_referencia === currentMes);
+  const gastosMes = allGastos.filter(g => g.mes_referencia === currentMes);
 
   const totalFaturas = faturasMes.reduce((s, f) => s + Number(f.valor), 0);
   const totalReceitas = receitasMes.reduce((s, r) => s + Number(r.valor), 0);
@@ -494,31 +490,18 @@ async function saveCartao() {
 // =============================================
 // RECEITAS
 // =============================================
-function getMesRefFromReceita(r) {
-  // Se tem mes_referencia usa ele, senão deriva da data, senão usa created_at
-  if (r.mes_referencia) return r.mes_referencia;
-  if (r.data) return r.data.substring(0, 7);
-  if (r.created_at) return r.created_at.substring(0, 7);
-  return currentMes;
-}
-
 function renderReceitas() {
-  const receitasMes = allReceitas.filter(r => getMesRefFromReceita(r) === currentMes);
+  const receitasMes = allReceitas.filter(r => r.mes_referencia === currentMes);
   const total = receitasMes.reduce((s, r) => s + Number(r.valor), 0);
   document.getElementById('receitas-mes-label').textContent = getMesLabel(currentMes);
   document.getElementById('total-receitas-page').textContent = fmtBRL(total);
 
-  // Set date input to first day of currentMes by default
-  const [y, m] = currentMes.split('-');
-  const today = new Date();
-  const isCurrentMonth = currentMes === getCurrentMesRef();
-  document.getElementById('rec-data').value = isCurrentMonth
-    ? today.toISOString().split('T')[0]
-    : `${y}-${m}-01`;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('rec-data').value = today;
 
   const tbody = document.getElementById('receitas-list');
   if (!receitasMes.length) {
-    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><span class="empty-icon">💵</span><p>Nenhuma receita em ${getMesLabel(currentMes)}</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><span class="empty-icon">💵</span><p>Nenhuma receita no mês</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = receitasMes.map(r => `
@@ -536,17 +519,13 @@ async function addReceita() {
   const data = document.getElementById('rec-data').value;
   if (!desc || !valor || !data) return showToast('Preencha todos os campos', 'error');
 
-  // Sempre salva no mês que está selecionado no topo, não importa a data escolhida
-  const { error } = await client.from('receitas').insert({
+  await client.from('receitas').insert({
     user_id: currentUser.id,
     descricao: desc,
     valor,
     data,
-    mes_referencia: currentMes
+    mes_referencia: data.substring(0, 7)
   });
-
-  if (error) return showToast('Erro ao salvar: ' + error.message, 'error');
-
   document.getElementById('rec-desc').value = '';
   document.getElementById('rec-valor').value = '';
   showToast('Receita adicionada!');
@@ -564,28 +543,18 @@ async function deleteReceita(id) {
 // =============================================
 // GASTOS MANUAIS
 // =============================================
-function getMesRefFromGasto(g) {
-  if (g.mes_referencia) return g.mes_referencia;
-  if (g.data) return g.data.substring(0, 7);
-  if (g.created_at) return g.created_at.substring(0, 7);
-  return currentMes;
-}
-
 function renderGastos() {
-  const gastosMes = allGastos.filter(g => getMesRefFromGasto(g) === currentMes);
+  const gastosMes = allGastos.filter(g => g.mes_referencia === currentMes);
   const total = gastosMes.reduce((s, g) => s + Number(g.valor), 0);
   document.getElementById('gastos-mes-label').textContent = getMesLabel(currentMes);
   document.getElementById('total-gastos-page').textContent = fmtBRL(total);
 
-  const [y, m] = currentMes.split('-');
-  const isCurrentMonth = currentMes === getCurrentMesRef();
-  document.getElementById('gst-data').value = isCurrentMonth
-    ? new Date().toISOString().split('T')[0]
-    : `${y}-${m}-01`;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('gst-data').value = today;
 
   const tbody = document.getElementById('gastos-list');
   if (!gastosMes.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="empty-icon">🛍️</span><p>Nenhum gasto em ${getMesLabel(currentMes)}</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="empty-icon">🛍️</span><p>Nenhum gasto no mês</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = gastosMes.map(g => `
@@ -605,17 +574,14 @@ async function addGasto() {
   const data = document.getElementById('gst-data').value;
   if (!desc || !valor || !data) return showToast('Preencha todos os campos', 'error');
 
-  const { error } = await client.from('gastos').insert({
+  await client.from('gastos').insert({
     user_id: currentUser.id,
     descricao: desc,
     categoria: cat,
     valor,
     data,
-    mes_referencia: currentMes
+    mes_referencia: data.substring(0, 7)
   });
-
-  if (error) return showToast('Erro ao salvar: ' + error.message, 'error');
-
   document.getElementById('gst-desc').value = '';
   document.getElementById('gst-valor').value = '';
   showToast('Gasto adicionado!');
