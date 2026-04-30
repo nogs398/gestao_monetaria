@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finance AI — Dashboard</title>
   <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -274,6 +275,14 @@
            PAGE: GASTOS
            ============================ -->
       <div class="page" id="page-gastos">
+        <!-- Import extrato banner -->
+        <div style="display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,rgba(91,110,245,0.1),rgba(139,92,246,0.07));border:1px solid rgba(91,110,245,0.2);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;">
+          <div>
+            <div style="font-weight:600;font-size:14px;margin-bottom:2px;">📂 Importar extrato bancário</div>
+            <div style="font-size:12px;color:var(--muted);">Upar CSV ou PDF do seu banco — gastos e receitas separados automaticamente</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openImportExtratoModal()">⬆️ Importar extrato</button>
+        </div>
         <div class="grid-2">
           <div class="card">
             <div class="section-header"><h3>Adicionar gasto manual</h3></div>
@@ -328,6 +337,65 @@
 
 
 <!-- ============================
+     MODAL: IMPORTAR EXTRATO
+     ============================ -->
+<div class="modal-overlay" id="modal-extrato">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-header">
+      <h3>📂 Importar extrato bancário</h3>
+      <button class="modal-close" onclick="closeModal('modal-extrato')">✕</button>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Mês de referência</label>
+      <select id="extrato-mes" class="form-input"></select>
+    </div>
+
+    <div class="upload-zone" id="upload-zone-extrato">
+      <input type="file" id="extrato-file" accept=".csv,.pdf" onchange="onExtratoSelect(this)">
+      <div class="upload-icon">🏦</div>
+      <strong id="extrato-upload-label">Arraste o extrato aqui ou clique para selecionar</strong>
+      <p>CSV ou PDF — Nubank, Itaú, Inter, Bradesco...</p>
+    </div>
+
+    <!-- Prévia separada por tipo -->
+    <div id="extrato-preview" style="display:none;margin-top:16px;">
+      <div style="display:flex;gap:12px;margin-bottom:12px;">
+        <div style="flex:1;background:rgba(16,217,138,0.08);border:1px solid rgba(16,217,138,0.2);border-radius:var(--radius-sm);padding:12px;">
+          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-bottom:4px;">💵 Receitas detectadas</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green);" id="extrato-total-receitas">R$ 0,00</div>
+          <div style="font-size:11px;color:var(--muted);" id="extrato-count-receitas">0 itens</div>
+        </div>
+        <div style="flex:1;background:rgba(240,69,106,0.08);border:1px solid rgba(240,69,106,0.2);border-radius:var(--radius-sm);padding:12px;">
+          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-bottom:4px;">🛍️ Gastos detectados</div>
+          <div style="font-size:20px;font-weight:700;color:var(--red);" id="extrato-total-gastos">R$ 0,00</div>
+          <div style="font-size:11px;color:var(--muted);" id="extrato-count-gastos">0 itens</div>
+        </div>
+      </div>
+
+      <!-- Tabs para ver os itens -->
+      <div style="display:flex;background:var(--surface2);border-radius:var(--radius-sm);padding:3px;margin-bottom:10px;">
+        <button class="login-tab active" id="etab-gastos" onclick="switchExtratoTab('gastos')" style="flex:1;">Gastos</button>
+        <button class="login-tab" id="etab-receitas" onclick="switchExtratoTab('receitas')" style="flex:1;">Receitas</button>
+      </div>
+      <div class="table-wrap" style="max-height:200px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th style="text-align:right">Valor</th><th></th></tr></thead>
+          <tbody id="extrato-preview-list"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('modal-extrato')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" id="btn-import-extrato" onclick="importExtrato()" disabled>
+        Salvar extrato
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================
      MODAL: IMPORTAR CSV
      ============================ -->
 <div class="modal-overlay" id="modal-import">
@@ -350,15 +418,29 @@
     </div>
 
     <div class="upload-zone" id="upload-zone">
-      <input type="file" id="csv-file" accept=".csv" onchange="onFileSelect(this)">
+      <input type="file" id="csv-file" accept=".csv,.pdf" onchange="onFileSelect(this)">
       <div class="upload-icon">📄</div>
-      <strong id="upload-label">Arraste o CSV aqui ou clique para selecionar</strong>
-      <p>Formato: date, title, amount (padrão Nubank)</p>
+      <strong id="upload-label">Arraste o arquivo aqui ou clique para selecionar</strong>
+      <p>Suporta CSV do Nubank e PDF do Itaú</p>
+    </div>
+
+    <!-- Toggle: substituir lançamentos do mês -->
+    <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:12px 14px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border);">
+      <label style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;">
+        <input type="checkbox" id="toggle-substituir" style="opacity:0;width:0;height:0;" checked>
+        <span onclick="this.previousElementSibling.click()" style="position:absolute;cursor:pointer;inset:0;background:#374151;border-radius:10px;transition:.2s;" id="toggle-track"></span>
+        <span id="toggle-thumb" style="position:absolute;height:14px;width:14px;left:3px;top:3px;background:white;border-radius:50%;transition:.2s;pointer-events:none;"></span>
+      </label>
+      <div>
+        <div style="font-size:13px;font-weight:600;">Substituir lançamentos do mês</div>
+        <div style="font-size:11px;color:var(--muted);">Remove os itens já importados neste mês/cartão antes de importar</div>
+      </div>
     </div>
 
     <div id="csv-preview" style="display:none;margin-top:16px;">
       <div class="section-header">
         <span style="font-size:13px;color:var(--muted);">Pré-visualização (<span id="csv-count">0</span> itens)</span>
+        <span id="import-source-badge" class="badge badge-parcela"></span>
       </div>
       <div class="table-wrap" style="max-height:220px;overflow-y:auto;">
         <table>
@@ -370,7 +452,7 @@
 
     <div style="display:flex;gap:10px;margin-top:20px;">
       <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('modal-import')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1;justify-content:center;" id="btn-import" onclick="importCSV()" disabled>
+      <button class="btn btn-primary" style="flex:1;justify-content:center;" id="btn-import" onclick="importFatura()" disabled>
         Importar fatura
       </button>
     </div>

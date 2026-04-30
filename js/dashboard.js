@@ -129,10 +129,48 @@ function onMonthChange() {
 }
 
 // =============================================
+// FUNÇÃO CENTRAL: projeta quais itens caem em um mês
+// =============================================
+function getFaturasDoMes(mes) {
+  const result = [];
+  allFaturas.forEach(item => {
+    const baseRef = item.mes_referencia;
+    if (!baseRef) return;
+    if (item.parcela_total <= 1) {
+      if (baseRef === mes) result.push({ ...item });
+    } else {
+      const diffMeses = monthDiff(baseRef, mes);
+      const parcelaNoMes = item.parcela_atual + diffMeses;
+      if (parcelaNoMes >= 1 && parcelaNoMes <= item.parcela_total) {
+        result.push({ ...item, parcela_atual: parcelaNoMes, _projetado: diffMeses !== 0 });
+      }
+    }
+  });
+  // Deduplicar reimportações: mantém só o item com maior id por descricao+parcela_total
+  const seen = new Map();
+  result.forEach(item => {
+    const key = normDesc(item.descricao) + '_' + item.parcela_total;
+    const existing = seen.get(key);
+    if (!existing || item.id > existing.id) seen.set(key, item);
+  });
+  return Array.from(seen.values());
+}
+
+function monthDiff(from, to) {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
+function normDesc(desc) {
+  return (desc || '').replace(/\s*-?\s*[Pp]arcela\s+\d+\/\d+/g, '').trim().toLowerCase();
+}
+
+// =============================================
 // DASHBOARD
 // =============================================
 function renderDashboard() {
-  const faturasMes = allFaturas.filter(f => (f.mes_referencia || (f.data||'').substring(0,7)) === currentMes);
+  const faturasMes = getFaturasDoMes(currentMes);
   const receitasMes = allReceitas.filter(r => getMesRefFromReceita(r) === currentMes);
   const gastosMes = allGastos.filter(g => getMesRefFromGasto(g) === currentMes);
 
@@ -223,10 +261,10 @@ function renderChartMensal() {
   const months = [];
   for (let i = 5; i >= 0; i--) months.push(addMonths(currentMes, -i));
 
-  const receitas = months.map(m => allReceitas.filter(r => r.mes_referencia === m).reduce((s, r) => s + Number(r.valor), 0));
+  const receitas = months.map(m => allReceitas.filter(r => getMesRefFromReceita(r) === m).reduce((s, r) => s + Number(r.valor), 0));
   const despesas = months.map(m => {
-    const fat = allFaturas.filter(f => f.mes_referencia === m).reduce((s, f) => s + Number(f.valor), 0);
-    const gst = allGastos.filter(g => g.mes_referencia === m).reduce((s, g) => s + Number(g.valor), 0);
+    const fat = getFaturasDoMes(m).reduce((s, f) => s + Number(f.valor), 0);
+    const gst = allGastos.filter(g => getMesRefFromGasto(g) === m).reduce((s, g) => s + Number(g.valor), 0);
     return fat + gst;
   });
 
@@ -257,7 +295,7 @@ function renderChartMensal() {
 // =============================================
 function renderFaturas() {
   document.getElementById('faturas-mes-label').textContent = getMesLabel(currentMes);
-  const faturasMes = allFaturas.filter(f => f.mes_referencia === currentMes);
+  const faturasMes = getFaturasDoMes(currentMes);
 
   // Resumo por cartão
   const resumoEl = document.getElementById('cartoes-resumo');
@@ -285,7 +323,7 @@ function renderFaturas() {
 
 function renderFaturasList() {
   const busca = (document.getElementById('busca-fatura')?.value || '').toLowerCase();
-  const faturasMes = allFaturas.filter(f => f.mes_referencia === currentMes);
+  const faturasMes = getFaturasDoMes(currentMes);
   const filtered = busca ? faturasMes.filter(f => f.descricao.toLowerCase().includes(busca)) : faturasMes;
 
   const tbody = document.getElementById('faturas-list');
@@ -327,61 +365,83 @@ async function deleteFaturaItem(id) {
 
 // =============================================
 // PARCELAS FUTURAS
+// Mostra o mês atual + todos os meses futuros com parcelas
+// usando a mesma lógica de projeção do getFaturasDoMes
 // =============================================
 function renderParcelas() {
-  // Find all installment items with parcela_total > 1
   const parcelados = allFaturas.filter(f => f.parcela_total > 1);
   if (!parcelados.length) {
-    document.getElementById('timeline-container').innerHTML = `
-      <div class="empty-state"><span class="empty-icon">📅</span><p>Nenhuma parcela encontrada. Importe um CSV com parcelamentos.</p></div>`;
+    document.getElementById('timeline-container').innerHTML =
+      '<div class="empty-state"><span class="empty-icon">📅</span><p>Nenhuma parcela encontrada. Importe um CSV com parcelamentos.</p></div>';
     return;
   }
 
-  // Project future installments for each item
-  const futureByMonth = {};
-
+  // Descobrir todos os meses que têm parcelas (do atual em diante)
+  const mesesSet = new Set();
   parcelados.forEach(item => {
-    // Calculate the reference month of each future installment
     for (let p = item.parcela_atual; p <= item.parcela_total; p++) {
       const diff = p - item.parcela_atual;
       const mesRef = addMonths(item.mes_referencia, diff);
-      if (!futureByMonth[mesRef]) futureByMonth[mesRef] = [];
-      futureByMonth[mesRef].push({
-        ...item,
-        _parcela_projetada: p,
-        _mesRef: mesRef
-      });
+      if (mesRef >= currentMes) mesesSet.add(mesRef);
     }
   });
 
-  // Sort months
-  const sortedMonths = Object.keys(futureByMonth).sort();
+  if (!mesesSet.size) {
+    document.getElementById('timeline-container').innerHTML =
+      '<div class="empty-state"><span class="empty-icon">✅</span><p>Nenhuma parcela futura encontrada. Tudo pago!</p></div>';
+    return;
+  }
 
-  const html = sortedMonths.map(mes => {
-    const items = futureByMonth[mes];
-    const total = items.reduce((s, i) => s + Number(i.valor), 0);
+  const sortedMonths = Array.from(mesesSet).sort();
+
+  // Totais acumulados para o resumo no topo
+  let totalFuturo = 0;
+
+  const cardsHtml = sortedMonths.map(mes => {
+    const itensMes = getFaturasDoMes(mes).filter(f => f.parcela_total > 1);
+    if (!itensMes.length) return '';
+    const total = itensMes.reduce((s, i) => s + Number(i.valor), 0);
+    totalFuturo += total;
     const isCurrent = mes === currentMes;
-    return `
-      <div class="card" style="margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h3 style="font-size:15px;color:${isCurrent ? 'var(--accent)' : 'var(--text)'}">${getMesLabel(mes)} ${isCurrent ? '← mês atual' : ''}</h3>
-          <span style="font-size:13px;font-weight:600;color:var(--red)">${fmtBRL(total)}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          ${items.map(item => {
-            const cartao = allCartoes.find(c => c.id === item.cartao_id);
-            return `<div class="timeline-item">
-              <span class="timeline-item-name">${item.descricao.replace(/\s*-\s*[Pp]arcela\s+\d+\/\d+/, '')}</span>
-              <span class="timeline-item-parcela">${item._parcela_projetada}/${item.parcela_total}</span>
-              ${cartao ? `<span style="font-size:11px;color:var(--muted);margin-right:12px;">${cartao.nome}</span>` : ''}
-              <span class="timeline-item-valor">${fmtBRL(item.valor)}</span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
+
+    return `<div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 style="font-size:15px;color:${isCurrent ? 'var(--accent)' : 'var(--text)'}">
+          ${getMesLabel(mes)}
+          ${isCurrent ? '<span style="font-size:11px;background:rgba(91,110,245,0.2);color:var(--accent);padding:2px 8px;border-radius:20px;margin-left:8px;">mês atual</span>' : ''}
+        </h3>
+        <span style="font-size:15px;font-weight:700;color:var(--red)">${fmtBRL(total)}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${itensMes.map(item => {
+          const cartao = allCartoes.find(c => c.id === item.cartao_id);
+          const nomeClean = item.descricao.replace(/\s*-?\s*[Pp]arcela\s+\d+\/\d+/g, '').trim();
+          return `<div class="timeline-item">
+            <span class="timeline-item-name">${nomeClean}</span>
+            <span class="timeline-item-parcela">${item.parcela_atual}/${item.parcela_total}</span>
+            ${cartao ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-right:8px;"><span style="width:6px;height:6px;border-radius:50%;background:${cartao.cor}"></span>${cartao.nome}</span>` : ''}
+            <span class="timeline-item-valor">${fmtBRL(item.valor)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
   }).join('');
 
-  document.getElementById('timeline-container').innerHTML = html;
+  // Resumo no topo
+  const resumo = `<div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(91,110,245,0.12),rgba(139,92,246,0.08));border-color:rgba(91,110,245,0.25);">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Total em parcelas futuras</div>
+        <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:700;color:var(--red);">${fmtBRL(totalFuturo)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">Meses com parcelas</div>
+        <div style="font-size:24px;font-weight:700;">${sortedMonths.length}</div>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('timeline-container').innerHTML = resumo + cardsHtml;
 }
 
 // =============================================
@@ -651,18 +711,33 @@ async function saveCategoria() {
 }
 
 // =============================================
-// IMPORT CSV
+// IMPORT — CSV + PDF
 // =============================================
 function openImportModal() {
   csvParsed = [];
   document.getElementById('csv-file').value = '';
-  document.getElementById('upload-label').textContent = 'Arraste o CSV aqui ou clique para selecionar';
+  document.getElementById('upload-label').textContent = 'Arraste o arquivo aqui ou clique para selecionar';
   document.getElementById('csv-preview').style.display = 'none';
   document.getElementById('btn-import').disabled = true;
   populateMonthSelect('import-mes', currentMes);
   populateImportCartaoSelect();
+  // Sync toggle visual
+  updateToggleVisual();
   openModal('modal-import');
 }
+
+function updateToggleVisual() {
+  const cb = document.getElementById('toggle-substituir');
+  const track = document.getElementById('toggle-track');
+  const thumb = document.getElementById('toggle-thumb');
+  if (!cb || !track || !thumb) return;
+  track.style.background = cb.checked ? 'var(--accent)' : '#374151';
+  thumb.style.left = cb.checked ? '19px' : '3px';
+}
+
+document.addEventListener('change', e => {
+  if (e.target.id === 'toggle-substituir') updateToggleVisual();
+});
 
 function populateImportCartaoSelect() {
   const sel = document.getElementById('import-cartao');
@@ -680,40 +755,148 @@ function onFileSelect(input) {
   const file = input.files[0];
   if (!file) return;
   document.getElementById('upload-label').textContent = `📄 ${file.name}`;
-  const reader = new FileReader();
-  reader.onload = e => parseCSV(e.target.result);
-  reader.readAsText(file, 'UTF-8');
+  if (file.name.toLowerCase().endsWith('.pdf')) {
+    parsePDF(file);
+  } else {
+    const reader = new FileReader();
+    reader.onload = e => parseCSV(e.target.result);
+    reader.readAsText(file, 'UTF-8');
+  }
 }
 
+// ---- CSV Parser (Nubank) ----
 function parseCSV(text) {
   const lines = text.trim().split('\n');
   csvParsed = [];
-  const isNubank = lines[0].toLowerCase().includes('date') && lines[0].toLowerCase().includes('title');
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-
-    // Handle quoted CSV
     const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g)?.map(c => c.replace(/^"|"$/g, '').trim()) || line.split(',').map(c => c.trim());
     if (cols.length < 3) continue;
-
-    let date, title, amount;
-    if (isNubank) {
-      [date, title, amount] = cols;
-    } else {
-      [date, title, amount] = cols;
-    }
-
+    const [date, title, amount] = cols;
     const val = parseFloat(amount);
-    if (isNaN(val) || val <= 0) continue; // skip payments (negative) and invalid
-
-    const parcela = parseParcela(title);
-    const categoria = detectCategoria(title);
-    csvParsed.push({ date, title, amount: val, parcela, categoria });
+    if (isNaN(val) || val <= 0) continue;
+    csvParsed.push({
+      date,
+      title,
+      amount: val,
+      parcela: parseParcela(title),
+      categoria: detectCategoria(title)
+    });
   }
 
-  // Preview
+  showBadge('CSV · Nubank');
+  renderPreview();
+}
+
+// ---- PDF Parser (Itaú e outros) ----
+async function parsePDF(file) {
+  document.getElementById('upload-label').textContent = '⏳ Lendo PDF...';
+  try {
+    // Set workerSrc
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      fullText += content.items.map(i => i.str).join(' ') + '\n';
+    }
+
+    csvParsed = parseItauPDF(fullText);
+
+    if (!csvParsed.length) {
+      showToast('Nenhum lançamento encontrado no PDF. Verifique se é uma fatura do Itaú.', 'error');
+      document.getElementById('upload-label').textContent = 'Arraste o arquivo aqui ou clique para selecionar';
+      return;
+    }
+
+    showBadge('PDF · Itaú');
+    renderPreview();
+    document.getElementById('upload-label').textContent = `📄 ${file.name}`;
+  } catch (err) {
+    console.error(err);
+    showToast('Erro ao ler o PDF: ' + err.message, 'error');
+    document.getElementById('upload-label').textContent = 'Arraste o arquivo aqui ou clique para selecionar';
+  }
+}
+
+function parseItauPDF(text) {
+  const items = [];
+  const mesRef = document.getElementById('import-mes').value;
+  const [refYear, refMonth] = mesRef.split('-').map(Number);
+
+  // Pattern: DD/MM DESCRIPTION ... VALUE
+  // ex: "14/04 Wellhub Donizete Moseli 69,99"
+  // ex: "24/02 OTICA SILVANA 02/02 75,00"
+  // The PDF text comes concatenated, so we look for the transactions block
+  
+  // Find the transactions section
+  const startMarkers = ['Lançamentos: compras', 'LANÇAMENTOS', 'Lançamentos no cartão', 'DATA ESTABELECIMENTO'];
+  const endMarkers = ['Total dos lançamentos', 'Limites de crédito', 'Encargos cobrados'];
+
+  let startIdx = -1;
+  for (const m of startMarkers) {
+    const idx = text.indexOf(m);
+    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) startIdx = idx;
+  }
+  if (startIdx === -1) startIdx = 0;
+
+  let endIdx = text.length;
+  for (const m of endMarkers) {
+    const idx = text.indexOf(m, startIdx + 10);
+    if (idx !== -1 && idx < endIdx) endIdx = idx;
+  }
+
+  const section = text.substring(startIdx, endIdx);
+
+  // Match: DD/MM ... value like "75,00" or "1.234,56"
+  // Lines are like: "14/04 Wellhub Donizete Moseli 69,99"
+  const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
+  let match;
+
+  while ((match = lineRegex.exec(section)) !== null) {
+    const day = match[1];
+    const month = match[2];
+    let desc = match[3].trim();
+    const valStr = match[4].replace('.', '').replace(',', '.');
+    const val = parseFloat(valStr);
+
+    if (isNaN(val) || val <= 0) continue;
+
+    // Skip lines that are clearly metadata (juros, IOF, CET, etc)
+    if (/juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i.test(desc)) continue;
+
+    // Clean up description — remove extra date patterns like "02/02" in middle
+    desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
+    if (!desc) continue;
+
+    // Build date: use the year from mesRef
+    // If month > refMonth by more than 1, it's probably previous year
+    let year = refYear;
+    const mon = parseInt(month);
+    if (mon > refMonth + 1) year = refYear - 1;
+
+    const date = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+    const parcela = parseParcela(desc);
+    const categoria = detectCategoria(desc);
+
+    items.push({ date, title: desc, amount: val, parcela, categoria });
+  }
+
+  return items;
+}
+
+function showBadge(label) {
+  const badge = document.getElementById('import-source-badge');
+  if (badge) { badge.textContent = label; badge.style.display = 'inline-flex'; }
+}
+
+function renderPreview() {
   document.getElementById('csv-count').textContent = csvParsed.length;
   document.getElementById('csv-preview').style.display = 'block';
   document.getElementById('btn-import').disabled = csvParsed.length === 0;
@@ -722,7 +905,7 @@ function parseCSV(text) {
   tbody.innerHTML = csvParsed.slice(0, 8).map(item => `
     <tr>
       <td>${item.date}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.title}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.title}</td>
       <td style="color:var(--red)">${fmtBRL(item.amount)}</td>
       <td>${item.parcela.total > 1 ? `<span class="badge badge-parcela">${item.parcela.atual}/${item.parcela.total}</span>` : '—'}</td>
     </tr>`).join('');
@@ -731,14 +914,26 @@ function parseCSV(text) {
   }
 }
 
-async function importCSV() {
+async function importFatura() {
   if (!csvParsed.length) return showToast('Nenhum dado para importar', 'error');
   const cartaoId = document.getElementById('import-cartao').value || null;
   const mesRef = document.getElementById('import-mes').value;
+  const substituir = document.getElementById('toggle-substituir').checked;
 
   const btn = document.getElementById('btn-import');
   btn.innerHTML = '<span class="spinner"></span> Importando...';
   btn.disabled = true;
+
+  // Se toggle ativo: apaga lançamentos existentes desse mês/cartão primeiro
+  if (substituir) {
+    let query = client.from('faturas_itens')
+      .delete()
+      .eq('user_id', currentUser.id)
+      .eq('mes_referencia', mesRef);
+    if (cartaoId) query = query.eq('cartao_id', parseInt(cartaoId));
+    const { error: delError } = await query;
+    if (delError) console.warn('Erro ao limpar mês anterior:', delError.message);
+  }
 
   const rows = csvParsed.map(item => ({
     user_id: currentUser.id,
@@ -758,7 +953,7 @@ async function importCSV() {
 
   if (error) return showToast('Erro ao importar: ' + error.message, 'error');
 
-  showToast(`${rows.length} itens importados com sucesso!`);
+  showToast(`✅ ${rows.length} itens importados!`);
   closeModal('modal-import');
   await loadFaturas();
   renderPage('faturas');
@@ -776,12 +971,18 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       zone.classList.remove('drag-over');
       const file = e.dataTransfer.files[0];
-      if (file && file.name.endsWith('.csv')) {
+      if (!file) return;
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.csv') || name.endsWith('.pdf')) {
         document.getElementById('csv-file').files = e.dataTransfer.files;
         document.getElementById('upload-label').textContent = `📄 ${file.name}`;
-        const reader = new FileReader();
-        reader.onload = ev => parseCSV(ev.target.result);
-        reader.readAsText(file, 'UTF-8');
+        if (name.endsWith('.pdf')) {
+          parsePDF(file);
+        } else {
+          const reader = new FileReader();
+          reader.onload = ev => parseCSV(ev.target.result);
+          reader.readAsText(file, 'UTF-8');
+        }
       }
     });
   }
