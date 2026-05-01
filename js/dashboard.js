@@ -1388,28 +1388,89 @@ function renderPlanejamento() {
     </div>
 
     <!-- Dica -->
-    ${gerarDica(periodos, salario, totalDespesas)}
+    ${gerarAnaliseIA(periodos, salario, totalDespesas)}
     `}
   `;
 }
 
-function gerarDica(periodos, salario, totalDespesas) {
+function gerarAnaliseIA(periodos, salario, totalDespesas) {
+  // 1. Dica padrão de saúde financeira
   const pct = salario > 0 ? (totalDespesas / salario * 100) : 0;
-  let dica = '', cor = '';
+  let dicaSaude = '', cor = '';
 
   if (pct === 0) return '';
-  if (pct < 30) { dica = `Você está comprometendo apenas ${pct.toFixed(0)}% da renda com despesas. Ótimo controle! 🎉`; cor = 'var(--green)'; }
-  else if (pct < 50) { dica = `${pct.toFixed(0)}% da renda vai para despesas. Está dentro do limite saudável, mas fique de olho.`; cor = 'var(--yellow)'; }
-  else if (pct < 80) { dica = `⚠️ ${pct.toFixed(0)}% da renda comprometida com despesas. Considere reduzir os gastos diários ou parcelamentos.`; cor = 'var(--yellow)'; }
-  else { dica = `🚨 ${pct.toFixed(0)}% da renda vai para despesas! Situação crítica — revise seus gastos urgentemente.`; cor = 'var(--red)'; }
+  if (pct < 30) { dicaSaude = `Saúde Financeira: ${pct.toFixed(0)}% comprometido. Excelente! 🎉`; cor = 'var(--green)'; }
+  else if (pct < 50) { dicaSaude = `Saúde Financeira: ${pct.toFixed(0)}% comprometido. Está sob controle.`; cor = 'var(--yellow)'; }
+  else if (pct < 80) { dicaSaude = `⚠️ Saúde Financeira: ${pct.toFixed(0)}% comprometido. Atenção aos gastos!`; cor = 'var(--yellow)'; }
+  else { dicaSaude = `🚨 Alerta: ${pct.toFixed(0)}% comprometido! Revise seus gastos urgente.`; cor = 'var(--red)'; }
 
-  const mais = periodos.sort((a,b) => (b.gasto/b.valor)-(a.gasto/a.valor))[0];
-  const dicaExtra = mais && mais.valor > 0 && (mais.gasto/mais.valor) > 0.7
-    ? `<br><span style="font-size:12px;color:var(--muted);">O período do <b>${mais.label.split(' ')[0]}</b> está com ${(mais.gasto/mais.valor*100).toFixed(0)}% comprometido.</span>` : '';
+  let htmlSaude = `<div style="padding:16px 20px; border-radius:var(--radius); border:1px solid ${cor}44; background:${cor}11; margin-bottom:20px; color:${cor}; font-weight:600;">${dicaSaude}</div>`;
 
-  return `<div style="padding:16px 20px;border-radius:var(--radius);border:1px solid ${cor}44;background:${cor}11;margin-bottom:20px;">
-    <span style="color:${cor};font-weight:600;">${dica}</span>${dicaExtra}
-  </div>`;
+  // 2. Inteligência Artificial de Fluxo de Caixa (Otimização)
+  if (periodos.length < 2 || salario === 0) return htmlSaude;
+
+  const [p1, p2] = periodos;
+  const sobra1 = p1.sobra;
+  const sobra2 = p2.sobra;
+
+  // Se ambos estão lascados, não tem como fazer milagre
+  if (sobra1 < 0 && sobra2 < 0) {
+    return `<div style="padding:16px; border:1px solid var(--red); background:rgba(240,69,106,0.1); border-radius:8px; margin-bottom:20px;">
+      🤖 <b>IA Financeira:</b> Ambos os períodos estão no vermelho. Não há como fazer balanceamento. Cancele gastos imediatamente.
+    </div>` + htmlSaude;
+  }
+
+  // Define um desequilíbrio considerável (mais de 10% do salário total de diferença nas sobras)
+  const diferenca = Math.abs(sobra1 - sobra2);
+  const limiteDesequilibrio = salario * 0.10;
+
+  if (sobra1 < 0 || sobra2 < 0 || diferenca > limiteDesequilibrio) {
+    const periodoRico = sobra1 > sobra2 ? p1 : p2;
+    const periodoPobre = sobra1 > sobra2 ? p2 : p1;
+    const nomeRico = periodoRico.label.split(' ')[0];
+    const nomePobre = periodoPobre.label.split(' ')[0];
+
+    // Cenário A: O período pobre está negativo (conta não fecha)
+    if (periodoPobre.sobra < 0 && periodoRico.sobra > 0) {
+      const buraco = Math.abs(periodoPobre.sobra);
+      const sugestao = Math.min(periodoRico.sobra, buraco); // Pega o que precisa ou o que dá
+      
+      let acao = `guardar <b>${fmtBRL(sugestao)}</b> do ${nomeRico} para cobrir o buraco do ${nomePobre}.`;
+      
+      // Procura um cartão no período pobre para sugerir antecipação
+      if (periodoPobre.cartoes && periodoPobre.cartoes.length > 0) {
+        const cartaoAlvo = periodoPobre.cartoes.sort((a,b) => b.totalMes - a.totalMes)[0];
+        acao = `usar <b>${fmtBRL(sugestao)}</b> da sobra do seu ${nomeRico} e <b>pagar antecipado a fatura do cartão ${cartaoAlvo.nome}</b>.`;
+      }
+
+      return `<div style="padding:16px; border:1px solid #5B6EF5; background:rgba(91,110,245,0.1); border-radius:8px; margin-bottom:20px;">
+        🤖 <b style="color:var(--accent)">Insight da IA: Desequilíbrio Crítico</b><br>
+        <span style="font-size:13px; color:var(--text);">O seu ${nomePobre} não vai fechar a conta (faltam ${fmtBRL(buraco)}), mas o seu ${nomeRico} tem dinheiro sobrando.</span><br><br>
+        💡 <b>Estratégia sugerida:</b> A IA recomenda que você não gaste a sobra! Em vez disso, vá no app do seu banco e gere um Pix para ${acao} Assim você não entra no vermelho em nenhum momento do mês.
+      </div>` + htmlSaude;
+    }
+    
+    // Cenário B: Ninguém tá negativo, mas um tá muito folgado e o outro tá muito apertado
+    else if (diferenca > limiteDesequilibrio) {
+      const valorIdealTransferencia = diferenca / 2;
+      
+      let acao = '';
+      if (periodoPobre.cartoes && periodoPobre.cartoes.length > 0) {
+        const cartaoAlvo = periodoPobre.cartoes[0];
+        acao = `adiantar <b>${fmtBRL(valorIdealTransferencia)}</b> da fatura do ${cartaoAlvo.nome}`;
+      } else {
+        acao = `separar <b>${fmtBRL(valorIdealTransferencia)}</b> para os gastos diarios`;
+      }
+
+      return `<div style="padding:16px; border:1px solid #10D98A; background:rgba(16,217,138,0.1); border-radius:8px; margin-bottom:20px;">
+        🤖 <b style="color:var(--green)">Insight da IA: Otimização de Caixa</b><br>
+        <span style="font-size:13px; color:var(--text);">Você tem muito dinheiro sobrando no ${nomeRico} (${fmtBRL(periodoRico.sobra)}) e pouco no ${nomePobre} (${fmtBRL(periodoPobre.sobra)}). Isso pode te causar uma falsa sensação de riqueza no início e aperto depois.</span><br><br>
+        💡 <b>Dica de Equilíbrio:</b> Sugiro ${acao} usando a sobra do ${nomeRico}. O ideal é que as duas quinzenas fiquem equilibradas psicologicamente.
+      </div>` + htmlSaude;
+    }
+  }
+
+  return htmlSaude;
 }
 
 function toggleAdiantFields() {
