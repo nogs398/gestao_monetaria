@@ -115,6 +115,7 @@ function parseParcela(desc) {
     total: 1
   };
 }
+
 function populateMonthSelect(selectId, value) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = '';

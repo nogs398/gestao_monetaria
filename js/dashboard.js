@@ -86,7 +86,7 @@ const PAGE_CONFIG = {
   parcelas:  { title: 'Parcelas futuras', subtitle: 'Projeção dos seus parcelamentos', action: null },
   cartoes:   { title: 'Cartões', subtitle: 'Gerencie seus cartões de crédito', action: '+ Novo cartão' },
   receitas:  { title: 'Receitas', subtitle: 'Entradas e salários', action: null },
-  gastos:    { title: 'Gastos manuais', subtitle: 'Despesas sem cartão', action: null },
+  gastos:       { title: 'Gastos manuais', subtitle: 'Despesas sem cartão', action: null },
   planejamento: { title: 'Planejamento', subtitle: 'Divisão de salário e adiantamento por período', action: null },
 };
 
@@ -119,7 +119,7 @@ function renderPage(page) {
     case 'parcelas':  renderParcelas(); break;
     case 'cartoes':   renderCartoes(); break;
     case 'receitas':  renderReceitas(); break;
-    case 'gastos':    renderGastos(); break;
+    case 'gastos':        renderGastos(); break;
     case 'planejamento':  renderPlanejamento(); break;
   }
 }
@@ -148,23 +148,13 @@ function getFaturasDoMes(mes) {
       }
     }
   });
+  // Deduplicar reimportações: mantém só o item com maior id por descricao+parcela_total
   const seen = new Map();
-
   result.forEach(item => {
-    const key = [
-      normDesc(item.descricao),
-      Number(item.valor).toFixed(2),
-      item.parcela_total,
-      item.cartao_id || 'sem-cartao'
-    ].join('_');
-
+    const key = normDesc(item.descricao) + '_' + item.parcela_total;
     const existing = seen.get(key);
-
-    if (!existing || item.id > existing.id) {
-      seen.set(key, item);
-    }
+    if (!existing || item.id > existing.id) seen.set(key, item);
   });
-
   return Array.from(seen.values());
 }
 
@@ -197,6 +187,7 @@ function renderDashboard() {
   document.getElementById('kpi-faturas').textContent = fmtBRL(totalFaturas);
   document.getElementById('kpi-gastos').textContent = fmtBRL(totalGastos);
 
+  // Saldo delta badge
   const deltaEl = document.getElementById('kpi-saldo-delta');
   if (saldo !== 0) {
     const pct = totalReceitas > 0 ? Math.abs(saldo / totalReceitas * 100).toFixed(0) : 0;
@@ -268,6 +259,7 @@ function renderChartCat(faturasMes, gastosMes) {
 }
 
 function renderChartMensal() {
+  // Show last 6 months
   const months = [];
   for (let i = 5; i >= 0; i--) months.push(addMonths(currentMes, -i));
 
@@ -307,6 +299,7 @@ function renderFaturas() {
   document.getElementById('faturas-mes-label').textContent = getMesLabel(currentMes);
   const faturasMes = getFaturasDoMes(currentMes);
 
+  // Resumo por cartão
   const resumoEl = document.getElementById('cartoes-resumo');
   if (allCartoes.length) {
     resumoEl.innerHTML = allCartoes.map(c => {
@@ -374,6 +367,8 @@ async function deleteFaturaItem(id) {
 
 // =============================================
 // PARCELAS FUTURAS
+// Mostra o mês atual + todos os meses futuros com parcelas
+// usando a mesma lógica de projeção do getFaturasDoMes
 // =============================================
 function renderParcelas() {
   const parcelados = allFaturas.filter(f => f.parcela_total > 1);
@@ -383,6 +378,7 @@ function renderParcelas() {
     return;
   }
 
+  // Descobrir todos os meses que têm parcelas (do atual em diante)
   const mesesSet = new Set();
   parcelados.forEach(item => {
     for (let p = item.parcela_atual; p <= item.parcela_total; p++) {
@@ -399,6 +395,8 @@ function renderParcelas() {
   }
 
   const sortedMonths = Array.from(mesesSet).sort();
+
+  // Totais acumulados para o resumo no topo
   let totalFuturo = 0;
 
   const cardsHtml = sortedMonths.map(mes => {
@@ -431,6 +429,7 @@ function renderParcelas() {
     </div>`;
   }).join('');
 
+  // Resumo no topo
   const resumo = `<div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(91,110,245,0.12),rgba(139,92,246,0.08));border-color:rgba(91,110,245,0.25);">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <div>
@@ -483,6 +482,7 @@ function renderCartoes() {
 
 function openModalCartao(cartaoId) {
   selectedColor = CARD_COLORS[0];
+  // Build color swatches
   const swatches = document.getElementById('color-swatches');
   swatches.innerHTML = CARD_COLORS.map(c => `
     <div class="color-swatch ${c === selectedColor ? 'selected' : ''}"
@@ -557,6 +557,7 @@ async function saveCartao() {
 // RECEITAS
 // =============================================
 function getMesRefFromReceita(r) {
+  // Se tem mes_referencia usa ele, senão deriva da data, senão usa created_at
   if (r.mes_referencia) return r.mes_referencia;
   if (r.data) return r.data.substring(0, 7);
   if (r.created_at) return r.created_at.substring(0, 7);
@@ -569,6 +570,7 @@ function renderReceitas() {
   document.getElementById('receitas-mes-label').textContent = getMesLabel(currentMes);
   document.getElementById('total-receitas-page').textContent = fmtBRL(total);
 
+  // Set date input to first day of currentMes by default
   const [y, m] = currentMes.split('-');
   const today = new Date();
   const isCurrentMonth = currentMes === getCurrentMesRef();
@@ -596,6 +598,7 @@ async function addReceita() {
   const data = document.getElementById('rec-data').value;
   if (!desc || !valor || !data) return showToast('Preencha todos os campos', 'error');
 
+  // Sempre salva no mês que está selecionado no topo, não importa a data escolhida
   const { error } = await client.from('receitas').insert({
     user_id: currentUser.id,
     descricao: desc,
@@ -720,6 +723,7 @@ function openImportModal() {
   document.getElementById('btn-import').disabled = true;
   populateMonthSelect('import-mes', currentMes);
   populateImportCartaoSelect();
+  // Sync toggle visual
   updateToggleVisual();
   openModal('modal-import');
 }
@@ -792,6 +796,7 @@ function parseCSV(text) {
 async function parsePDF(file) {
   document.getElementById('upload-label').textContent = '⏳ Lendo PDF...';
   try {
+    // Set workerSrc
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     const arrayBuffer = await file.arrayBuffer();
@@ -822,99 +827,71 @@ async function parsePDF(file) {
   }
 }
 
-
-
 function parseItauPDF(text) {
   const items = [];
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
 
-  const startMarkers = [
-    'Lançamentos: compras',
-    'LANÇAMENTOS',
-    'Lançamentos no cartão',
-    'DATA ESTABELECIMENTO'
-  ];
-
-  const endMarkers = [
-    'Total dos lançamentos',
-    'Limites de crédito',
-    'Encargos cobrados'
-  ];
+  // Pattern: DD/MM DESCRIPTION ... VALUE
+  // ex: "14/04 Wellhub Donizete Moseli 69,99"
+  // ex: "24/02 OTICA SILVANA 02/02 75,00"
+  // The PDF text comes concatenated, so we look for the transactions block
+  
+  // Find the transactions section
+  const startMarkers = ['Lançamentos: compras', 'LANÇAMENTOS', 'Lançamentos no cartão', 'DATA ESTABELECIMENTO'];
+  const endMarkers = ['Total dos lançamentos', 'Limites de crédito', 'Encargos cobrados'];
 
   let startIdx = -1;
-
-  for (const marker of startMarkers) {
-    const idx = text.indexOf(marker);
-
-    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) {
-      startIdx = idx;
-    }
+  for (const m of startMarkers) {
+    const idx = text.indexOf(m);
+    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) startIdx = idx;
   }
-
   if (startIdx === -1) startIdx = 0;
 
   let endIdx = text.length;
-
-  for (const marker of endMarkers) {
-    const idx = text.indexOf(marker, startIdx + 10);
-
-    if (idx !== -1 && idx < endIdx) {
-      endIdx = idx;
-    }
+  for (const m of endMarkers) {
+    const idx = text.indexOf(m, startIdx + 10);
+    if (idx !== -1 && idx < endIdx) endIdx = idx;
   }
 
   const section = text.substring(startIdx, endIdx);
 
+  // Match: DD/MM ... value like "75,00" or "1.234,56"
+  // Lines are like: "14/04 Wellhub Donizete Moseli 69,99"
   const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
-
   let match;
 
   while ((match = lineRegex.exec(section)) !== null) {
     const day = match[1];
     const month = match[2];
     let desc = match[3].trim();
-
-    const valStr = match[4].replace(/\./g, '').replace(',', '.');
+    const valStr = match[4].replace('.', '').replace(',', '.');
     const val = parseFloat(valStr);
 
     if (isNaN(val) || val <= 0) continue;
 
-    if (
-      /juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i
-        .test(desc)
-    ) {
-      continue;
-    }
+    // Skip lines that are clearly metadata (juros, IOF, CET, etc)
+    if (/juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i.test(desc)) continue;
 
-    desc = desc.replace(/\s+/g, ' ').trim();
-
+    // Clean up description — remove extra date patterns like "02/02" in middle
+    desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
     if (!desc) continue;
 
+    // Build date: use the year from mesRef
+    // If month > refMonth by more than 1, it's probably previous year
     let year = refYear;
-    const mon = parseInt(month, 10);
+    const mon = parseInt(month);
+    if (mon > refMonth + 1) year = refYear - 1;
 
-    if (mon > refMonth + 1) {
-      year = refYear - 1;
-    }
-
-    const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-
+    const date = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
 
-    items.push({
-      date,
-      title: desc,
-      amount: val,
-      parcela,
-      categoria
-    });
+    items.push({ date, title: desc, amount: val, parcela, categoria });
   }
 
   return items;
 }
-
 
 function showBadge(label) {
   const badge = document.getElementById('import-source-badge');
@@ -949,6 +926,7 @@ async function importFatura() {
   btn.innerHTML = '<span class="spinner"></span> Importando...';
   btn.disabled = true;
 
+  // Se toggle ativo: apaga lançamentos existentes desse mês/cartão primeiro
   if (substituir) {
     let query = client.from('faturas_itens')
       .delete()
@@ -1063,6 +1041,9 @@ async function onExtratoFile(file) {
   }
 }
 
+// Parse extrato CSV — detecta débitos e créditos
+// Suporta Nubank (date,title,amount — negativos = crédito)
+// e formato genérico (data, descrição, valor, tipo)
 function parseExtratoCSV(text) {
   const lines = text.trim().split('\n');
   const gastos = [], receitas = [];
@@ -1074,16 +1055,19 @@ function parseExtratoCSV(text) {
     const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g)?.map(c => c.replace(/^"|"$/g,'').trim()) || line.split(',').map(c=>c.trim());
     if (cols.length < 3) continue;
 
+    // Nubank: date, title, amount (negativo = pix/crédito recebido)
     if (header.includes('date') && header.includes('title')) {
       const [date, title, amtStr] = cols;
       const val = parseFloat(amtStr);
       if (isNaN(val)) continue;
       if (val < 0) {
+        // crédito (ex: pagamento fatura, pix recebido)
         receitas.push({ date, title, amount: Math.abs(val), categoria: detectCatReceita(title) });
       } else {
         gastos.push({ date, title, amount: val, categoria: detectCategoria(title) });
       }
     } else {
+      // Formato genérico: tenta achar valor e sentido
       const [date, title, amtStr, tipo] = cols;
       const val = Math.abs(parseFloat((amtStr||'').replace(',','.')));
       if (isNaN(val) || val === 0) continue;
@@ -1098,8 +1082,10 @@ function parseExtratoCSV(text) {
   return { gastos, receitas };
 }
 
+// Parse extrato PDF — texto livre
 function parseExtratoText(text, _tipo) {
   const gastos = [], receitas = [];
+  // Pattern: DD/MM DESCRIPTION VALUE com sinal ou palavra Créd/Déb
   const re = /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
   const mesRef = document.getElementById('extrato-mes').value;
   const [refYear] = mesRef.split('-').map(Number);
@@ -1112,11 +1098,13 @@ function parseExtratoText(text, _tipo) {
     if (isNaN(val) || val <= 0) continue;
     if (/saldo|limite|total|fatura|vencimento|encargo|iof|juros|multa/i.test(desc)) continue;
 
+    // Parse date
     const parts = datePart.split('/');
     const day = parts[0], mon = parts[1];
     const year = parts[2] ? (parts[2].length === 2 ? '20'+parts[2] : parts[2]) : refYear;
     const date = `${year}-${mon}-${day}`;
 
+    // Detect credit vs debit from context around the match
     const ctx = text.substring(Math.max(0, match.index-30), match.index+match[0].length+30);
     const isCredito = /créd|crédito|recebid|pix rec|transfer.*rec|salário|salario|adiant/i.test(ctx+desc);
 
@@ -1240,19 +1228,10 @@ function savePlannerConfig(cfg) {
 
 function renderPlanejamento() {
   const cfg = loadPlannerConfig();
-  
-  // Buscar totais de faturas
   const faturasMes = getFaturasDoMes(currentMes);
   const totalFatura = faturasMes.reduce((s,f) => s+Number(f.valor), 0);
-  
-  // Buscar totais de receitas
   const receitasMes = allReceitas.filter(r => getMesRefFromReceita(r) === currentMes);
   const totalReceitas = receitasMes.reduce((s,r) => s+Number(r.valor), 0);
-
-  // Buscar totais de gastos manuais
-  const gastosMes = allGastos.filter(g => getMesRefFromGasto(g) === currentMes);
-  const totalGastosManuais = gastosMes.reduce((s,g) => s+Number(g.valor), 0);
-  const totalDespesas = totalFatura + totalGastosManuais;
 
   // Config form values
   const salario     = cfg.salario     || 0;
@@ -1268,10 +1247,14 @@ function renderPlanejamento() {
   })).filter(c => c.totalMes > 0);
 
   // Calcular divisão por período
+  // Período 1: dia do adiantamento → dia do salário (próximo mês)
+  // Período 2: dia do salário → dia do adiantamento
   let periodos = [];
   if (usaAdiant && adiantamento > 0) {
+    // Faturas que vencem entre dia do adiantamento e dia do salário → pagar no adiantamento
     const comAdiant = cartoesComVenc.filter(c => {
       const venc = c.vencimento;
+      // Se vencimento está entre diaAdiant e fim do mês OU no início até diaSalario
       return venc >= diaAdiant || venc <= diaSalario;
     });
     const comSalario = cartoesComVenc.filter(c => !comAdiant.includes(c));
@@ -1279,39 +1262,22 @@ function renderPlanejamento() {
     const totalAdiant = comAdiant.reduce((s,c)=>s+c.totalMes,0);
     const totalSalario = comSalario.reduce((s,c)=>s+c.totalMes,0);
 
-    // Filtrar gastos manuais por período de data
-    const gastosNoAdiantamento = gastosMes.filter(g => {
-      const [ano, mes, diaStr] = g.data.split('-');
-      const dia = parseInt(diaStr, 10);
-      if (diaAdiant > diaSalario) {
-        return dia >= diaAdiant || dia <= diaSalario;
-      } else {
-        return dia >= diaAdiant && dia <= diaSalario;
-      }
-    });
-    const gastosNoSalario = gastosMes.filter(g => !gastosNoAdiantamento.includes(g));
-
-    const totalGstAdiant = gastosNoAdiantamento.reduce((s, g) => s + Number(g.valor), 0);
-    const totalGstSalario = gastosNoSalario.reduce((s, g) => s + Number(g.valor), 0);
-
     periodos = [
       {
         label: `Adiantamento (dia ${diaAdiant})`,
         valor: adiantamento,
-        gasto: totalAdiant + totalGstAdiant,
-        sobra: adiantamento - (totalAdiant + totalGstAdiant),
+        gasto: totalAdiant,
+        sobra: adiantamento - totalAdiant,
         cartoes: comAdiant,
-        itensManuais: gastosNoAdiantamento,
         cor: '#5B6EF5',
         icone: '💳'
       },
       {
         label: `Salário (dia ${diaSalario})`,
         valor: salario - adiantamento,
-        gasto: totalSalario + totalGstSalario,
-        sobra: (salario - adiantamento) - (totalSalario + totalGstSalario),
+        gasto: totalSalario,
+        sobra: (salario - adiantamento) - totalSalario,
         cartoes: comSalario,
-        itensManuais: gastosNoSalario,
         cor: '#10D98A',
         icone: '💵'
       }
@@ -1320,10 +1286,9 @@ function renderPlanejamento() {
     periodos = [{
       label: `Salário (dia ${diaSalario})`,
       valor: salario,
-      gasto: totalDespesas,
-      sobra: salario - totalDespesas,
+      gasto: totalFatura,
+      sobra: salario - totalFatura,
       cartoes: cartoesComVenc,
-      itensManuais: gastosMes,
       cor: '#10D98A',
       icone: '💵'
     }];
@@ -1377,12 +1342,12 @@ function renderPlanejamento() {
         <div class="card-value green">${fmtBRL(salario)}</div>
       </div>
       <div class="card">
-        <div class="card-title">🧾 Despesas totais</div>
-        <div class="card-value red">${fmtBRL(totalDespesas)}</div>
+        <div class="card-title">🧾 Total faturas</div>
+        <div class="card-value red">${fmtBRL(totalFatura)}</div>
       </div>
       <div class="card">
         <div class="card-title">✅ Sobra total</div>
-        <div class="card-value ${salario-totalDespesas>=0?'green':'red'}">${fmtBRL(salario-totalDespesas)}</div>
+        <div class="card-value ${salario-totalFatura>=0?'green':'red'}">${fmtBRL(salario-totalFatura)}</div>
       </div>
     </div>
 
@@ -1411,119 +1376,46 @@ function renderPlanejamento() {
           </div>`).join('')}
         </div>` : `<div style="color:var(--muted);font-size:13px;text-align:center;padding:12px;">Nenhuma fatura neste período</div>`}
 
-        ${p.itensManuais && p.itensManuais.length ? `
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;margin-top:8px;">
-          ${p.itensManuais.map(g => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(240,69,106,0.05);border-radius:8px;border:1px dashed rgba(240,69,106,0.2);">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:11px;">🛍️</span>
-              <span style="font-size:13px;">${g.descricao}</span>
-              <span style="font-size:11px;color:var(--muted);">dia ${g.data.split('-')[2]}</span>
-            </div>
-            <span style="font-weight:600;color:var(--red);font-size:13px;">${fmtBRL(g.valor)}</span>
-          </div>`).join('')}
-        </div>` : `<div style="color:var(--muted);font-size:13px;text-align:center;padding:12px;margin-bottom:14px;">Nenhum gasto manual neste período</div>`}
-
         <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;color:var(--muted);">Total do período</span>
+          <span style="font-size:13px;color:var(--muted);">Gasto com faturas</span>
           <span style="font-weight:700;color:var(--red);">${fmtBRL(p.gasto)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-          <span style="font-size:13px;color:var(--muted);">Sobra no período</span>
+          <span style="font-size:13px;color:var(--muted);">Sobra para outros gastos</span>
           <span style="font-weight:700;font-size:16px;color:${p.sobra>=0?'var(--green)':'var(--red)'};">${fmtBRL(p.sobra)}</span>
         </div>
         ${p.valor > 0 ? `
         <div class="progress-bar" style="margin-top:10px;">
           <div class="progress-fill" style="width:${Math.min(p.gasto/p.valor*100,100).toFixed(0)}%;background:${p.sobra>=0?'linear-gradient(90deg,var(--accent),var(--accent2))':'linear-gradient(90deg,var(--red),#FF6B8A)'}"></div>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${(p.gasto/p.valor*100).toFixed(0)}% da renda do período comprometido</div>` : ''}
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${(p.gasto/p.valor*100).toFixed(0)}% da renda comprometido</div>` : ''}
       </div>`).join('')}
     </div>
 
     <!-- Dica -->
-    ${gerarAnaliseIA(periodos, salario, totalDespesas)}
+    ${gerarDica(periodos, salario, totalFatura)}
     `}
   `;
 }
 
-function gerarAnaliseIA(periodos, salario, totalDespesas) {
-  // 1. Dica padrão de saúde financeira
-  const pct = salario > 0 ? (totalDespesas / salario * 100) : 0;
-  let dicaSaude = '', cor = '';
+function gerarDica(periodos, salario, totalFatura) {
+  const pct = salario > 0 ? (totalFatura / salario * 100) : 0;
+  let dica = '', cor = '';
 
   if (pct === 0) return '';
-  if (pct < 30) { dicaSaude = `Saúde Financeira: ${pct.toFixed(0)}% comprometido. Excelente! 🎉`; cor = 'var(--green)'; }
-  else if (pct < 50) { dicaSaude = `Saúde Financeira: ${pct.toFixed(0)}% comprometido. Está sob controle.`; cor = 'var(--yellow)'; }
-  else if (pct < 80) { dicaSaude = `⚠️ Saúde Financeira: ${pct.toFixed(0)}% comprometido. Atenção aos gastos!`; cor = 'var(--yellow)'; }
-  else { dicaSaude = `🚨 Alerta: ${pct.toFixed(0)}% comprometido! Revise seus gastos urgente.`; cor = 'var(--red)'; }
+  if (pct < 30) { dica = `Você está comprometendo apenas ${pct.toFixed(0)}% da renda com faturas. Ótimo controle! 🎉`; cor = 'var(--green)'; }
+  else if (pct < 50) { dica = `${pct.toFixed(0)}% da renda vai para faturas. Está dentro do limite saudável, mas fique de olho.`; cor = 'var(--yellow)'; }
+  else if (pct < 80) { dica = `⚠️ ${pct.toFixed(0)}% da renda comprometida com faturas. Considere reduzir parcelamentos.`; cor = 'var(--yellow)'; }
+  else { dica = `🚨 ${pct.toFixed(0)}% da renda vai para faturas! Situação crítica — revise seus gastos urgentemente.`; cor = 'var(--red)'; }
 
-  let htmlSaude = `<div style="padding:16px 20px; border-radius:var(--radius); border:1px solid ${cor}44; background:${cor}11; margin-bottom:20px; color:${cor}; font-weight:600;">${dicaSaude}</div>`;
+  // Período mais crítico
+  const mais = periodos.sort((a,b) => (b.gasto/b.valor)-(a.gasto/a.valor))[0];
+  const dicaExtra = mais && mais.valor > 0 && (mais.gasto/mais.valor) > 0.7
+    ? `<br><span style="font-size:12px;color:var(--muted);">O ${mais.label} está com ${(mais.gasto/mais.valor*100).toFixed(0)}% comprometido.</span>` : '';
 
-  // 2. Inteligência Artificial de Fluxo de Caixa (Otimização)
-  if (periodos.length < 2 || salario === 0) return htmlSaude;
-
-  const [p1, p2] = periodos;
-  const sobra1 = p1.sobra;
-  const sobra2 = p2.sobra;
-
-  // Se ambos estão lascados, não tem como fazer milagre
-  if (sobra1 < 0 && sobra2 < 0) {
-    return `<div style="padding:16px; border:1px solid var(--red); background:rgba(240,69,106,0.1); border-radius:8px; margin-bottom:20px;">
-      🤖 <b>IA Financeira:</b> Ambos os períodos estão no vermelho. Não há como fazer balanceamento. Cancele gastos imediatamente.
-    </div>` + htmlSaude;
-  }
-
-  // Define um desequilíbrio considerável (mais de 10% do salário total de diferença nas sobras)
-  const diferenca = Math.abs(sobra1 - sobra2);
-  const limiteDesequilibrio = salario * 0.10;
-
-  if (sobra1 < 0 || sobra2 < 0 || diferenca > limiteDesequilibrio) {
-    const periodoRico = sobra1 > sobra2 ? p1 : p2;
-    const periodoPobre = sobra1 > sobra2 ? p2 : p1;
-    const nomeRico = periodoRico.label.split(' ')[0];
-    const nomePobre = periodoPobre.label.split(' ')[0];
-
-    // Cenário A: O período pobre está negativo (conta não fecha)
-    if (periodoPobre.sobra < 0 && periodoRico.sobra > 0) {
-      const buraco = Math.abs(periodoPobre.sobra);
-      const sugestao = Math.min(periodoRico.sobra, buraco); // Pega o que precisa ou o que dá
-      
-      let acao = `guardar <b>${fmtBRL(sugestao)}</b> do ${nomeRico} para cobrir o buraco do ${nomePobre}.`;
-      
-      // Procura um cartão no período pobre para sugerir antecipação
-      if (periodoPobre.cartoes && periodoPobre.cartoes.length > 0) {
-        const cartaoAlvo = periodoPobre.cartoes.sort((a,b) => b.totalMes - a.totalMes)[0];
-        acao = `usar <b>${fmtBRL(sugestao)}</b> da sobra do seu ${nomeRico} e <b>pagar antecipado a fatura do cartão ${cartaoAlvo.nome}</b>.`;
-      }
-
-      return `<div style="padding:16px; border:1px solid #5B6EF5; background:rgba(91,110,245,0.1); border-radius:8px; margin-bottom:20px;">
-        🤖 <b style="color:var(--accent)">Insight da IA: Desequilíbrio Crítico</b><br>
-        <span style="font-size:13px; color:var(--text);">O seu ${nomePobre} não vai fechar a conta (faltam ${fmtBRL(buraco)}), mas o seu ${nomeRico} tem dinheiro sobrando.</span><br><br>
-        💡 <b>Estratégia sugerida:</b> A IA recomenda que você não gaste a sobra! Em vez disso, vá no app do seu banco e gere um Pix para ${acao} Assim você não entra no vermelho em nenhum momento do mês.
-      </div>` + htmlSaude;
-    }
-    
-    // Cenário B: Ninguém tá negativo, mas um tá muito folgado e o outro tá muito apertado
-    else if (diferenca > limiteDesequilibrio) {
-      const valorIdealTransferencia = diferenca / 2;
-      
-      let acao = '';
-      if (periodoPobre.cartoes && periodoPobre.cartoes.length > 0) {
-        const cartaoAlvo = periodoPobre.cartoes[0];
-        acao = `adiantar <b>${fmtBRL(valorIdealTransferencia)}</b> da fatura do ${cartaoAlvo.nome}`;
-      } else {
-        acao = `separar <b>${fmtBRL(valorIdealTransferencia)}</b> para os gastos diarios`;
-      }
-
-      return `<div style="padding:16px; border:1px solid #10D98A; background:rgba(16,217,138,0.1); border-radius:8px; margin-bottom:20px;">
-        🤖 <b style="color:var(--green)">Insight da IA: Otimização de Caixa</b><br>
-        <span style="font-size:13px; color:var(--text);">Você tem muito dinheiro sobrando no ${nomeRico} (${fmtBRL(periodoRico.sobra)}) e pouco no ${nomePobre} (${fmtBRL(periodoPobre.sobra)}). Isso pode te causar uma falsa sensação de riqueza no início e aperto depois.</span><br><br>
-        💡 <b>Dica de Equilíbrio:</b> Sugiro ${acao} usando a sobra do ${nomeRico}. O ideal é que as duas quinzenas fiquem equilibradas psicologicamente.
-      </div>` + htmlSaude;
-    }
-  }
-
-  return htmlSaude;
+  return `<div style="padding:16px 20px;border-radius:var(--radius);border:1px solid ${cor}44;background:${cor}11;margin-bottom:20px;">
+    <span style="color:${cor};font-weight:600;">${dica}</span>${dicaExtra}
+  </div>`;
 }
 
 function toggleAdiantFields() {
