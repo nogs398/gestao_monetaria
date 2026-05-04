@@ -828,29 +828,72 @@ function parseItauPDF(text) {
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
 
-  let cleanText = text
+  const cleanText = (text || '')
     .replace(/\*\*/g, ' ')
+    .replace(/[“”]/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
 
-  const startMatch = cleanText.match(/Lançamentos:\s*compras\s*e\s*saques/i);
+  const norm = cleanText
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
-  if (!startMatch) {
-    showToast('Não achei a seção de lançamentos atuais do Itaú.', 'error');
-    return [];
+  // Fim obrigatório: antes de "Compras parceladas - próximas faturas"
+  const endPatterns = [
+    'compras parceladas - proximas faturas',
+    'proxima fatura',
+    'demais faturas',
+    'limites de credito',
+    'encargos cobrados nesta fatura'
+  ];
+
+  let endIdx = cleanText.length;
+
+  for (const marker of endPatterns) {
+    const idx = norm.indexOf(marker);
+    if (idx !== -1 && idx < endIdx) {
+      endIdx = idx;
+    }
   }
 
-  const startIdx = startMatch.index;
+  // Começo tolerante para PDF Itaú
+  const startPatterns = [
+    'lancamentos: compras e saques',
+    'lancamentos compras e saques',
+    'total dos pagamentos',
+    'data estabelecimento valor em r'
+  ];
 
-  const afterStart = cleanText.substring(startIdx);
+  let startIdx = -1;
 
-  const endMatch = afterStart.match(
-    /Compras\s+parceladas\s*-\s*próximas\s+faturas|Lançamentos\s+no\s+cartão|Total\s+dos\s+lançamentos\s+atuais|Limites\s+de\s+crédito|Encargos\s+cobrados/i
+  for (const marker of startPatterns) {
+    const idx = norm.indexOf(marker);
+    if (idx !== -1 && idx < endIdx) {
+      startIdx = idx;
+      break;
+    }
+  }
+
+  // Fallback específico: começa no primeiro lançamento real do Itaú
+  if (startIdx === -1) {
+    const firstTransaction = cleanText.match(/\d{2}\/\d{2}\s+[A-Za-z0-9]/);
+    if (firstTransaction && firstTransaction.index < endIdx) {
+      startIdx = firstTransaction.index;
+    } else {
+      showToast('Não consegui localizar lançamentos no PDF Itaú.', 'error');
+      console.warn('Texto Itaú extraído:', cleanText);
+      return [];
+    }
+  }
+
+  let section = cleanText.substring(startIdx, endIdx);
+
+  // Se começou em "Total dos pagamentos", remove a linha de pagamento antes de processar
+  section = section.replace(
+    /pagamentos efetuados.*?total dos pagamentos\s*-?[\d.,]+/i,
+    ' '
   );
-
-  const section = endMatch
-    ? afterStart.substring(0, endMatch.index)
-    : afterStart;
 
   const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
 
@@ -869,29 +912,40 @@ function parseItauPDF(text) {
 
     desc = desc.replace(/\s+/g, ' ').trim();
 
+    const descNorm = desc
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    // Remove sujeiras do cabeçalho
+    desc = desc
+      .replace(/^p\s+l\s*/i, '')
+      .replace(/^data estabelecimento valor em r\$?\s*/i, '')
+      .replace(/^guilherme.*?data estabelecimento valor em r\$?\s*/i, '')
+      .trim();
+
     if (!desc) continue;
 
-    // Ignora pagamentos e linhas de resumo
+    // Ignora pagamentos/resumos
     if (
-      /pagamento|total|saldo|limite|fatura anterior|pagamentos efetuados|valor em r\$|data estabelecimento/i
-        .test(desc)
+      /pagamento|pagamentos efetuados|total dos pagamentos|total|saldo|limite|fatura anterior|data estabelecimento|valor em r/i
+        .test(descNorm)
     ) {
       continue;
     }
 
-    // Ignora encargos, juros e multa para não bater fatura com juros
-    // Se quiser bater exatamente o total Itaú, depois a gente libera isso.
+    // Ignora encargos/juros/multa. Se quiser bater exatamente 545,40, depois liberamos.
     if (
-      /encargos|juros|multa|iof|rotativo|refinanciament/i
-        .test(desc)
+      /encargos|juros|multa|iof|rotativo|refinanciament|financiamento|moratorio/i
+        .test(descNorm)
     ) {
       continue;
     }
 
-    // Segurança extra: se por algum motivo pegou seção futura, ignora
+    // Segurança: não importar futuras
     if (
-      /próximas faturas|proximas faturas|próxima fatura|proxima fatura|demais faturas/i
-        .test(desc)
+      /compras parceladas|proximas faturas|proxima fatura|demais faturas/i
+        .test(descNorm)
     ) {
       continue;
     }
@@ -928,11 +982,9 @@ function parseItauPDF(text) {
     });
   }
 
-  console.log('ITAU - itens importados:', items);
-  console.log(
-    'ITAU - total importado:',
-    items.reduce((s, i) => s + i.amount, 0)
-  );
+  console.log('ITAU SECTION USADA:', section);
+  console.log('ITAU ITENS:', items);
+  console.log('ITAU TOTAL:', items.reduce((s, i) => s + i.amount, 0));
 
   return items;
 }
