@@ -149,11 +149,22 @@ function getFaturasDoMes(mes) {
     }
   });
   const seen = new Map();
+
   result.forEach(item => {
-    const key = normDesc(item.descricao) + '_' + item.parcela_total;
+    const key = [
+      normDesc(item.descricao),
+      Number(item.valor).toFixed(2),
+      item.parcela_total,
+      item.cartao_id || 'sem-cartao'
+    ].join('_');
+
     const existing = seen.get(key);
-    if (!existing || item.id > existing.id) seen.set(key, item);
+
+    if (!existing || item.id > existing.id) {
+      seen.set(key, item);
+    }
   });
+
   return Array.from(seen.values());
 }
 

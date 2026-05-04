@@ -73,10 +73,44 @@ function closeModal(id) {
 }
 
 // Parse parcelas from description: "Produto - Parcela 3/12" → {atual: 3, total: 12}
-function parseParcela(title) {
-  const match = title.match(/[Pp]arcela\s+(\d+)\/(\d+)/);
-  if (match) return { atual: parseInt(match[1]), total: parseInt(match[2]) };
-  return { atual: 1, total: 1 };
+function parseParcela(desc) {
+  const text = (desc || '').toUpperCase();
+
+  const patterns = [
+    /PARCELA\s*(\d{1,2})\s*\/\s*(\d{1,2})/i,
+    /PARC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})/i,
+    /PARCELA\s*(\d{1,2})\s*DE\s*(\d{1,2})/i,
+    /PARC\.?\s*(\d{1,2})\s*DE\s*(\d{1,2})/i,
+    /(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+
+    if (!match) continue;
+
+    const atual = parseInt(match[1], 10);
+    const total = parseInt(match[2], 10);
+
+    if (
+      Number.isInteger(atual) &&
+      Number.isInteger(total) &&
+      atual >= 1 &&
+      total > 1 &&
+      atual <= total &&
+      total <= 48
+    ) {
+      return {
+        atual,
+        total
+      };
+    }
+  }
+
+  return {
+    atual: 1,
+    total: 1
+  };
 }
 
 // Detect category from description
