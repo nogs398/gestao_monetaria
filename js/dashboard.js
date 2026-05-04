@@ -149,13 +149,26 @@ function getFaturasDoMes(mes) {
     }
   });
   // Deduplicar reimportações: mantém só o item com maior id por descricao+parcela_total
+  
   const seen = new Map();
+
   result.forEach(item => {
-    const key = normDesc(item.descricao) + '_' + item.parcela_total;
+    const key = [
+      normDesc(item.descricao),
+      Number(item.valor).toFixed(2),
+      item.parcela_total,
+      item.cartao_id || 'sem-cartao'
+    ].join('_');
+
     const existing = seen.get(key);
-    if (!existing || item.id > existing.id) seen.set(key, item);
+
+    if (!existing || item.id > existing.id) {
+      seen.set(key, item);
+    }
   });
+
   return Array.from(seen.values());
+
 }
 
 function monthDiff(from, to) {
@@ -832,62 +845,87 @@ function parseItauPDF(text) {
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
 
-  // Pattern: DD/MM DESCRIPTION ... VALUE
-  // ex: "14/04 Wellhub Donizete Moseli 69,99"
-  // ex: "24/02 OTICA SILVANA 02/02 75,00"
-  // The PDF text comes concatenated, so we look for the transactions block
-  
-  // Find the transactions section
-  const startMarkers = ['Lançamentos: compras', 'LANÇAMENTOS', 'Lançamentos no cartão', 'DATA ESTABELECIMENTO'];
-  const endMarkers = ['Total dos lançamentos', 'Limites de crédito', 'Encargos cobrados'];
+  const startMarkers = [
+    'Lançamentos: compras',
+    'LANÇAMENTOS',
+    'Lançamentos no cartão',
+    'DATA ESTABELECIMENTO'
+  ];
+
+  const endMarkers = [
+    'Total dos lançamentos',
+    'Limites de crédito',
+    'Encargos cobrados'
+  ];
 
   let startIdx = -1;
-  for (const m of startMarkers) {
-    const idx = text.indexOf(m);
-    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) startIdx = idx;
+
+  for (const marker of startMarkers) {
+    const idx = text.indexOf(marker);
+
+    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) {
+      startIdx = idx;
+    }
   }
+
   if (startIdx === -1) startIdx = 0;
 
   let endIdx = text.length;
-  for (const m of endMarkers) {
-    const idx = text.indexOf(m, startIdx + 10);
-    if (idx !== -1 && idx < endIdx) endIdx = idx;
+
+  for (const marker of endMarkers) {
+    const idx = text.indexOf(marker, startIdx + 10);
+
+    if (idx !== -1 && idx < endIdx) {
+      endIdx = idx;
+    }
   }
 
   const section = text.substring(startIdx, endIdx);
 
-  // Match: DD/MM ... value like "75,00" or "1.234,56"
-  // Lines are like: "14/04 Wellhub Donizete Moseli 69,99"
   const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
+
   let match;
 
   while ((match = lineRegex.exec(section)) !== null) {
     const day = match[1];
     const month = match[2];
     let desc = match[3].trim();
-    const valStr = match[4].replace('.', '').replace(',', '.');
+
+    const valStr = match[4].replace(/\./g, '').replace(',', '.');
     const val = parseFloat(valStr);
 
     if (isNaN(val) || val <= 0) continue;
 
-    // Skip lines that are clearly metadata (juros, IOF, CET, etc)
-    if (/juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i.test(desc)) continue;
+    if (
+      /juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i
+        .test(desc)
+    ) {
+      continue;
+    }
 
-    // Clean up description — remove extra date patterns like "02/02" in middle
-    desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
+    desc = desc.replace(/\s+/g, ' ').trim();
+
     if (!desc) continue;
 
-    // Build date: use the year from mesRef
-    // If month > refMonth by more than 1, it's probably previous year
     let year = refYear;
-    const mon = parseInt(month);
-    if (mon > refMonth + 1) year = refYear - 1;
+    const mon = parseInt(month, 10);
 
-    const date = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+    if (mon > refMonth + 1) {
+      year = refYear - 1;
+    }
+
+    const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
 
-    items.push({ date, title: desc, amount: val, parcela, categoria });
+    items.push({
+      date,
+      title: desc,
+      amount: val,
+      parcela,
+      categoria
+    });
   }
 
   return items;
