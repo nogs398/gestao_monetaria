@@ -1435,179 +1435,350 @@ function savePlannerConfig(cfg) {
 }
 
 function renderPlanejamento() {
-  const cfg = loadPlannerConfig();
-  const faturasMes = getFaturasDoMes(currentMes);
-  const totalFatura = faturasMes.reduce((s,f) => s+Number(f.valor), 0);
-  const receitasMes = allReceitas.filter(r => getMesRefFromReceita(r) === currentMes);
-  const totalReceitas = receitasMes.reduce((s,r) => s+Number(r.valor), 0);
+    const cfg = loadPlannerConfig();
 
-  // Config form values
-  const salario     = cfg.salario     || 0;
-  const diaSalario  = cfg.diaSalario  || 5;
-  const adiantamento= cfg.adiantamento|| 0;
-  const diaAdiant   = cfg.diaAdiant   || 20;
-  const usaAdiant   = cfg.usaAdiant   !== false;
+    const faturasMes = getFaturasDoMes(currentMes);
+    const gastosMes = allGastos.filter(
+        g => getMesRefFromGasto(g) === currentMes
+    );
+    const receitasMes = allReceitas.filter(
+        r => getMesRefFromReceita(r) === currentMes
+    );
 
-  // Cartões com vencimento
-  const cartoesComVenc = allCartoes.map(c => ({
-    ...c,
-    totalMes: faturasMes.filter(f => f.cartao_id === c.id).reduce((s,f)=>s+Number(f.valor),0)
-  })).filter(c => c.totalMes > 0);
+    const totalFatura = faturasMes.reduce(
+        (s, f) => s + Number(f.valor),
+        0
+    );
 
-  // Calcular divisão por período
-  // Período 1: dia do adiantamento → dia do salário (próximo mês)
-  // Período 2: dia do salário → dia do adiantamento
-  let periodos = [];
-  if (usaAdiant && adiantamento > 0) {
-    // Faturas que vencem entre dia do adiantamento e dia do salário → pagar no adiantamento
-    const comAdiant = cartoesComVenc.filter(c => {
-      const venc = c.vencimento;
-      // Se vencimento está entre diaAdiant e fim do mês OU no início até diaSalario
-      return venc >= diaAdiant || venc <= diaSalario;
-    });
-    const comSalario = cartoesComVenc.filter(c => !comAdiant.includes(c));
+    const totalGastosManuais = gastosMes.reduce(
+        (s, g) => s + Number(g.valor),
+        0
+    );
 
-    const totalAdiant = comAdiant.reduce((s,c)=>s+c.totalMes,0);
-    const totalSalario = comSalario.reduce((s,c)=>s+c.totalMes,0);
+    const totalDespesas = totalFatura + totalGastosManuais;
 
-    periodos = [
-      {
-        label: `Adiantamento (dia ${diaAdiant})`,
-        valor: adiantamento,
-        gasto: totalAdiant,
-        sobra: adiantamento - totalAdiant,
-        cartoes: comAdiant,
-        cor: '#5B6EF5',
-        icone: '💳'
-      },
-      {
-        label: `Salário (dia ${diaSalario})`,
-        valor: salario - adiantamento,
-        gasto: totalSalario,
-        sobra: (salario - adiantamento) - totalSalario,
-        cartoes: comSalario,
-        cor: '#10D98A',
-        icone: '💵'
-      }
-    ];
-  } else {
-    periodos = [{
-      label: `Salário (dia ${diaSalario})`,
-      valor: salario,
-      gasto: totalFatura,
-      sobra: salario - totalFatura,
-      cartoes: cartoesComVenc,
-      cor: '#10D98A',
-      icone: '💵'
-    }];
-  }
+    const totalReceitas = receitasMes.reduce(
+        (s, r) => s + Number(r.valor),
+        0
+    );
 
-  const container = document.getElementById('page-planejamento');
-  container.innerHTML = `
-    <!-- Config card -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="section-header" style="margin-bottom:16px;">
-        <h3>⚙️ Configurar salário e pagamentos</h3>
-        <span style="font-size:12px;color:var(--muted);">Salvo só no seu navegador — opcional</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Salário bruto (R$)</label>
-          <input type="number" id="pl-salario" class="form-input" value="${salario||''}" placeholder="Ex: 5000">
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Dia do salário</label>
-          <input type="number" id="pl-dia-salario" class="form-input" value="${diaSalario}" min="1" max="31">
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Tem adiantamento?</label>
-          <select id="pl-usa-adiant" class="form-input" onchange="toggleAdiantFields()">
-            <option value="sim" ${usaAdiant?'selected':''}>Sim</option>
-            <option value="nao" ${!usaAdiant?'selected':''}>Não</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin:0" id="pl-adiant-group" ${!usaAdiant?'style="display:none"':''}>
-          <label class="form-label">Valor adiantamento (R$)</label>
-          <input type="number" id="pl-adiantamento" class="form-input" value="${adiantamento||''}" placeholder="Ex: 2000">
-        </div>
-        <div class="form-group" style="margin:0" id="pl-dia-adiant-group" ${!usaAdiant?'style="display:none"':''}>
-          <label class="form-label">Dia do adiantamento</label>
-          <input type="number" id="pl-dia-adiant" class="form-input" value="${diaAdiant}" min="1" max="31">
-        </div>
-      </div>
-      <button class="btn btn-primary" style="margin-top:16px;" onclick="salvarPlanejamento()">💾 Calcular divisão</button>
-    </div>
+    const salario = cfg.salario || totalReceitas || 0;
+    const diaSalario = cfg.diaSalario || 5;
+    const adiantamento = cfg.adiantamento || 0;
+    const diaAdiant = cfg.diaAdiant || 20;
+    const usaAdiant = cfg.usaAdiant !== false;
 
-    ${salario === 0 ? `
-    <div class="empty-state" style="padding:40px">
-      <span class="empty-icon">📊</span>
-      <p>Preencha seu salário acima para ver a divisão de pagamentos</p>
-    </div>` : `
-    <!-- Resumo geral -->
-    <div class="grid-3" style="margin-bottom:20px;">
-      <div class="card">
-        <div class="card-title">💵 Renda do mês</div>
-        <div class="card-value green">${fmtBRL(salario)}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">🧾 Total faturas</div>
-        <div class="card-value red">${fmtBRL(totalFatura)}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">✅ Sobra total</div>
-        <div class="card-value ${salario-totalFatura>=0?'green':'red'}">${fmtBRL(salario-totalFatura)}</div>
-      </div>
-    </div>
+    const cartoesComVenc = allCartoes.map(c => ({
+        ...c,
+        totalMes: faturasMes
+            .filter(f => f.cartao_id === c.id)
+            .reduce((s, f) => s + Number(f.valor), 0)
+    })).filter(c => c.totalMes > 0);
 
-    <!-- Períodos -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:20px;">
-      ${periodos.map(p => `
-      <div class="card" style="border-color:${p.cor}33;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-          <div style="width:36px;height:36px;border-radius:10px;background:${p.cor}22;display:flex;align-items:center;justify-content:center;font-size:18px;">${p.icone}</div>
-          <div>
-            <div style="font-weight:700;font-size:15px;">${p.label}</div>
-            <div style="font-size:12px;color:var(--muted);">Disponível: ${fmtBRL(p.valor)}</div>
-          </div>
-        </div>
+    let periodos = [];
 
-        ${p.cartoes.length ? `
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
-          ${p.cartoes.map(c => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="width:8px;height:8px;border-radius:50%;background:${c.cor};flex-shrink:0"></span>
-              <span style="font-size:13px;">${c.nome}</span>
-              <span style="font-size:11px;color:var(--muted);">vence dia ${c.vencimento}</span>
+    if (usaAdiant && adiantamento > 0) {
+        const comAdiant = cartoesComVenc.filter(c => {
+            const venc = c.vencimento;
+            return venc >= diaAdiant || venc <= diaSalario;
+        });
+
+        const comSalario = cartoesComVenc.filter(c => !comAdiant.includes(c));
+
+        const totalAdiant = comAdiant.reduce((s, c) => s + c.totalMes, 0);
+        const totalSalario = comSalario.reduce((s, c) => s + c.totalMes, 0);
+
+        /*
+            Por padrão, jogo os gastos manuais no salário,
+            porque normalmente eles são despesas do mês corrente.
+        */
+        const totalSalarioComGastos = totalSalario + totalGastosManuais;
+
+        periodos = [
+            {
+                label: `Adiantamento (dia ${diaAdiant})`,
+                valor: adiantamento,
+                gasto: totalAdiant,
+                sobra: adiantamento - totalAdiant,
+                cartoes: comAdiant,
+                gastosManuais: [],
+                cor: '#5B6EF5',
+                icone: '💳'
+            },
+            {
+                label: `Salário (dia ${diaSalario})`,
+                valor: salario - adiantamento,
+                gasto: totalSalarioComGastos,
+                sobra: (salario - adiantamento) - totalSalarioComGastos,
+                cartoes: comSalario,
+                gastosManuais: gastosMes,
+                cor: '#10D98A',
+                icone: '💵'
+            }
+        ];
+    } else {
+        periodos = [{
+            label: `Salário (dia ${diaSalario})`,
+            valor: salario,
+            gasto: totalDespesas,
+            sobra: salario - totalDespesas,
+            cartoes: cartoesComVenc,
+            gastosManuais: gastosMes,
+            cor: '#10D98A',
+            icone: '💵'
+        }];
+    }
+
+    const container = document.getElementById('page-planejamento');
+
+    container.innerHTML = `
+        <div class="card" style="margin-bottom:20px;">
+            <div class="section-header" style="margin-bottom:16px;">
+                <h3>⚙️ Configurar salário e pagamentos</h3>
+                <span style="font-size:12px;color:var(--muted);">
+                    Salvo só no seu navegador — opcional
+                </span>
             </div>
-            <span style="font-weight:600;color:var(--red);font-size:13px;">${fmtBRL(c.totalMes)}</span>
-          </div>`).join('')}
-        </div>` : `<div style="color:var(--muted);font-size:13px;text-align:center;padding:12px;">Nenhuma fatura neste período</div>`}
 
-        <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;color:var(--muted);">Gasto com faturas</span>
-          <span style="font-weight:700;color:var(--red);">${fmtBRL(p.gasto)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-          <span style="font-size:13px;color:var(--muted);">Sobra para outros gastos</span>
-          <span style="font-weight:700;font-size:16px;color:${p.sobra>=0?'var(--green)':'var(--red)'};">${fmtBRL(p.sobra)}</span>
-        </div>
-        ${p.valor > 0 ? `
-        <div class="progress-bar" style="margin-top:10px;">
-          <div class="progress-fill" style="width:${Math.min(p.gasto/p.valor*100,100).toFixed(0)}%;background:${p.sobra>=0?'linear-gradient(90deg,var(--accent),var(--accent2))':'linear-gradient(90deg,var(--red),#FF6B8A)'}"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${(p.gasto/p.valor*100).toFixed(0)}% da renda comprometido</div>` : ''}
-      </div>`).join('')}
-    </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Salário bruto (R$)</label>
+                    <input
+                        type="number"
+                        id="pl-salario"
+                        class="form-input"
+                        value="${salario || ''}"
+                        placeholder="Ex: 5000"
+                    >
+                </div>
 
-    <!-- Dica -->
-    ${gerarDica(periodos, salario, totalFatura)}
-    `}
-  `;
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Dia do salário</label>
+                    <input
+                        type="number"
+                        id="pl-dia-salario"
+                        class="form-input"
+                        value="${diaSalario}"
+                        min="1"
+                        max="31"
+                    >
+                </div>
+
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Tem adiantamento?</label>
+                    <select
+                        id="pl-usa-adiant"
+                        class="form-input"
+                        onchange="toggleAdiantFields()"
+                    >
+                        <option value="sim" ${usaAdiant ? 'selected' : ''}>Sim</option>
+                        <option value="nao" ${!usaAdiant ? 'selected' : ''}>Não</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin:0" id="pl-adiant-group">
+                    <label class="form-label">Valor adiantamento (R$)</label>
+                    <input
+                        type="number"
+                        id="pl-adiantamento"
+                        class="form-input"
+                        value="${adiantamento || ''}"
+                        placeholder="Ex: 2000"
+                    >
+                </div>
+
+                <div class="form-group" style="margin:0" id="pl-dia-adiant-group">
+                    <label class="form-label">Dia do adiantamento</label>
+                    <input
+                        type="number"
+                        id="pl-dia-adiant"
+                        class="form-input"
+                        value="${diaAdiant}"
+                        min="1"
+                        max="31"
+                    >
+                </div>
+            </div>
+
+            <button
+                class="btn btn-primary"
+                style="margin-top:16px;"
+                onclick="salvarPlanejamento()"
+            >
+                💾 Calcular divisão
+            </button>
+        </div>
+
+        ${
+            salario === 0
+                ? `
+                    <div class="empty-state" style="padding:40px">
+                        <span class="empty-icon">📊</span>
+                        <p>Preencha seu salário acima para ver a divisão de pagamentos</p>
+                    </div>
+                `
+                : `
+                    <div class="grid-4" style="margin-bottom:20px;">
+                        <div class="card">
+                            <div class="card-title">💵 Renda do mês</div>
+                            <div class="card-value green">${fmtBRL(salario)}</div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">🧾 Total faturas</div>
+                            <div class="card-value red">${fmtBRL(totalFatura)}</div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">🛍️ Gastos manuais</div>
+                            <div class="card-value red">${fmtBRL(totalGastosManuais)}</div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">✅ Sobra real</div>
+                            <div class="card-value ${salario - totalDespesas >= 0 ? 'green' : 'red'}">
+                                ${fmtBRL(salario - totalDespesas)}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:20px;">
+                        ${periodos.map(p => `
+                            <div class="card" style="border-color:${p.cor}33;">
+                                <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+                                    <div style="width:36px;height:36px;border-radius:10px;background:${p.cor}22;display:flex;align-items:center;justify-content:center;font-size:18px;">
+                                        ${p.icone}
+                                    </div>
+
+                                    <div>
+                                        <div style="font-weight:700;font-size:15px;">
+                                            ${p.label}
+                                        </div>
+                                        <div style="font-size:12px;color:var(--muted);">
+                                            Disponível: ${fmtBRL(p.valor)}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                ${
+                                    p.cartoes.length
+                                        ? `
+                                            <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-bottom:8px;">
+                                                Cartões
+                                            </div>
+
+                                            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+                                                ${p.cartoes.map(c => `
+                                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;">
+                                                        <div style="display:flex;align-items:center;gap:8px;">
+                                                            <span style="width:8px;height:8px;border-radius:50%;background:${c.cor};flex-shrink:0"></span>
+                                                            <span style="font-size:13px;">${c.nome}</span>
+                                                            <span style="font-size:11px;color:var(--muted);">
+                                                                vence dia ${c.vencimento}
+                                                            </span>
+                                                        </div>
+
+                                                        <span style="font-weight:600;color:var(--red);font-size:13px;">
+                                                            ${fmtBRL(c.totalMes)}
+                                                        </span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        `
+                                        : `
+                                            <div style="color:var(--muted);font-size:13px;text-align:center;padding:12px;">
+                                                Nenhuma fatura neste período
+                                            </div>
+                                        `
+                                }
+
+                                ${
+                                    p.gastosManuais && p.gastosManuais.length
+                                        ? `
+                                            <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;margin:14px 0 8px;">
+                                                Gastos manuais
+                                            </div>
+
+                                            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+                                                ${p.gastosManuais.slice(0, 8).map(g => `
+                                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;">
+                                                        <div style="display:flex;flex-direction:column;">
+                                                            <span style="font-size:13px;">${g.descricao}</span>
+                                                            <span style="font-size:11px;color:var(--muted);">
+                                                                ${g.categoria || 'Outros'} · ${fmtDate(g.data)}
+                                                            </span>
+                                                        </div>
+
+                                                        <span style="font-weight:600;color:var(--red);font-size:13px;">
+                                                            ${fmtBRL(g.valor)}
+                                                        </span>
+                                                    </div>
+                                                `).join('')}
+
+                                                ${
+                                                    p.gastosManuais.length > 8
+                                                        ? `
+                                                            <div style="font-size:12px;color:var(--muted);text-align:center;padding:6px;">
+                                                                + ${p.gastosManuais.length - 8} gastos manuais
+                                                            </div>
+                                                        `
+                                                        : ''
+                                                }
+                                            </div>
+                                        `
+                                        : ''
+                                }
+
+                                <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
+                                    <span style="font-size:13px;color:var(--muted);">
+                                        Total de despesas
+                                    </span>
+
+                                    <span style="font-weight:700;color:var(--red);">
+                                        ${fmtBRL(p.gasto)}
+                                    </span>
+                                </div>
+
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+                                    <span style="font-size:13px;color:var(--muted);">
+                                        Sobra para outros gastos
+                                    </span>
+
+                                    <span style="font-weight:700;font-size:16px;color:${p.sobra >= 0 ? 'var(--green)' : 'var(--red)'};">
+                                        ${fmtBRL(p.sobra)}
+                                    </span>
+                                </div>
+
+                                ${
+                                    p.valor > 0
+                                        ? `
+                                            <div class="progress-bar" style="margin-top:10px;">
+                                                <div
+                                                    class="progress-fill"
+                                                    style="width:${Math.min(p.gasto / p.valor * 100, 100).toFixed(0)}%;background:${p.sobra >= 0 ? 'linear-gradient(90deg,var(--accent),var(--accent2))' : 'linear-gradient(90deg,var(--red),#FF6B8A)'}"
+                                                ></div>
+                                            </div>
+
+                                            <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+                                                ${(p.gasto / p.valor * 100).toFixed(0)}% da renda comprometido
+                                            </div>
+                                        `
+                                        : ''
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${gerarDica(periodos, salario, totalDespesas)}
+                `
+        }
+    `;
+
+    toggleAdiantFields();
 }
 
-function gerarDica(periodos, salario, totalFatura) {
-  const pct = salario > 0 ? (totalFatura / salario * 100) : 0;
+function gerarDica(periodos, salario, totalDespesas) {
+  const pct = salario > 0 ? (totalDespesas / salario * 100) : 0;
   let dica = '', cor = '';
 
   if (pct === 0) return '';
