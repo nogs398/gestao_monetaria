@@ -834,68 +834,83 @@ function parseItauPDF(text) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const norm = cleanText
+  const normalizeText = (s) => (s || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
-  // Fim obrigatório: antes de "Compras parceladas - próximas faturas"
-  const endPatterns = [
+  const norm = normalizeText(cleanText);
+
+  // 1) Começar obrigatoriamente na seção de lançamentos atuais
+  const startMarkers = [
+    'lancamentos: compras e saques',
+    'lancamentos compras e saques'
+  ];
+
+  let startIdx = -1;
+
+  for (const marker of startMarkers) {
+    const idx = norm.indexOf(marker);
+    if (idx !== -1) {
+      startIdx = idx;
+      break;
+    }
+  }
+
+  // Fallback: começa no primeiro lançamento após o cabeçalho DATA ESTABELECIMENTO
+  if (startIdx === -1) {
+    const headerIdx = norm.indexOf('data estabelecimento valor em r');
+    if (headerIdx !== -1) {
+      const afterHeader = cleanText.substring(headerIdx);
+      const firstTransaction = afterHeader.match(/\d{2}\/\d{2}\s+[A-Za-z0-9]/);
+      if (firstTransaction) {
+        startIdx = headerIdx + firstTransaction.index;
+      }
+    }
+  }
+
+  if (startIdx === -1) {
+    showToast('Não achei a seção de lançamentos atuais do Itaú.', 'error');
+    console.warn('Texto Itaú extraído:', cleanText);
+    return [];
+  }
+
+  // 2) Cortar ANTES dos totais e ANTES da seção "próximas faturas"
+  // Isso evita importar parcelas futuras como se fossem da fatura atual.
+  const endMarkers = [
+    'lancamentos no cartao',
+    'total dos lancamentos atuais',
     'compras parceladas - proximas faturas',
+    'compras parceladas proximas faturas',
     'proxima fatura',
     'demais faturas',
+    'total para proximas faturas',
     'limites de credito',
     'encargos cobrados nesta fatura'
   ];
 
   let endIdx = cleanText.length;
 
-  for (const marker of endPatterns) {
-    const idx = norm.indexOf(marker);
+  for (const marker of endMarkers) {
+    const idx = norm.indexOf(marker, startIdx + 1);
     if (idx !== -1 && idx < endIdx) {
       endIdx = idx;
     }
   }
 
-  // Começo tolerante para PDF Itaú
-  const startPatterns = [
-    'lancamentos: compras e saques',
-    'lancamentos compras e saques',
-    'total dos pagamentos',
-    'data estabelecimento valor em r'
-  ];
-
-  let startIdx = -1;
-
-  for (const marker of startPatterns) {
-    const idx = norm.indexOf(marker);
-    if (idx !== -1 && idx < endIdx) {
-      startIdx = idx;
-      break;
-    }
-  }
-
-  // Fallback específico: começa no primeiro lançamento real do Itaú
-  if (startIdx === -1) {
-    const firstTransaction = cleanText.match(/\d{2}\/\d{2}\s+[A-Za-z0-9]/);
-    if (firstTransaction && firstTransaction.index < endIdx) {
-      startIdx = firstTransaction.index;
-    } else {
-      showToast('Não consegui localizar lançamentos no PDF Itaú.', 'error');
-      console.warn('Texto Itaú extraído:', cleanText);
-      return [];
-    }
-  }
-
   let section = cleanText.substring(startIdx, endIdx);
 
-  // Se começou em "Total dos pagamentos", remove a linha de pagamento antes de processar
-  section = section.replace(
-    /pagamentos efetuados.*?total dos pagamentos\s*-?[\d.,]+/i,
-    ' '
-  );
+  // Remove cabeçalhos/sujeiras que o PDF pode jogar no meio
+  section = section
+    .replace(/GUILHERME\s+N\s+FERREIRA/gi, ' ')
+    .replace(/DATA\s+ESTABELECIMENTO\s+VALOR\s+EM\s+R\$?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
+  // Captura lançamentos tipo:
+  // 02/01 Shopee*SHOPEE* 04/12 333,25
+  // 26/04 JUROS DE MORA 0,59
+  const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})(?=\s+\d{2}\/\d{2}\s+|$)/g;
 
   const seen = new Set();
   let match;
@@ -903,68 +918,60 @@ function parseItauPDF(text) {
   while ((match = lineRegex.exec(section)) !== null) {
     const day = match[1];
     const month = match[2];
-    let desc = match[3].trim();
 
-    const valStr = match[4].replace(/\./g, '').replace(',', '.');
-    const val = parseFloat(valStr);
-
-    if (isNaN(val) || val <= 0) continue;
-
-    desc = desc.replace(/\s+/g, ' ').trim();
-
-    const descNorm = desc
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-
-    // Remove sujeiras do cabeçalho
-    desc = desc
-      .replace(/^p\s+l\s*/i, '')
-      .replace(/^data estabelecimento valor em r\$?\s*/i, '')
-      .replace(/^guilherme.*?data estabelecimento valor em r\$?\s*/i, '')
+    let desc = match[3]
+      .replace(/\s+/g, ' ')
       .trim();
 
+    const val = parseFloat(
+      match[4]
+        .replace(/\./g, '')
+        .replace(',', '.')
+    );
+
+    if (isNaN(val) || val <= 0) continue;
     if (!desc) continue;
 
-    // Ignora pagamentos/resumos
+    const descNorm = normalizeText(desc);
+
+    // Segurança extra: se por algum motivo vier texto de futuras, ignora
     if (
-      /pagamento|pagamentos efetuados|total dos pagamentos|total|saldo|limite|fatura anterior|data estabelecimento|valor em r/i
+      /compras parceladas|proximas faturas|proxima fatura|demais faturas|total para proximas faturas/i
         .test(descNorm)
     ) {
       continue;
     }
 
-    // Ignora encargos/juros/multa. Se quiser bater exatamente 545,40, depois liberamos.
+    // Ignora pagamentos e resumos
     if (
-      /encargos|juros|multa|iof|rotativo|refinanciament|financiamento|moratorio/i
+      /pagamento|pagamentos efetuados|total dos pagamentos|saldo|limite|fatura anterior|data estabelecimento|valor em r/i
         .test(descNorm)
     ) {
       continue;
     }
 
-    // Segurança: não importar futuras
-    if (
-      /compras parceladas|proximas faturas|proxima fatura|demais faturas/i
-        .test(descNorm)
-    ) {
+    // Se você NÃO quiser importar encargos/juros/multa, descomenta esse bloco:
+    /*
+    if (/encargos|juros|multa|iof|rotativo|refinanciament|financiamento|moratorio/i.test(descNorm)) {
       continue;
     }
+    */
 
     let year = refYear;
     const mon = parseInt(month, 10);
 
+    // Ex: fatura referência maio pode ter compras de dezembro/janeiro
     if (mon > refMonth + 1) {
       year = refYear - 1;
     }
 
     const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
 
     const key = [
       date,
-      desc.toLowerCase(),
+      descNorm,
       val.toFixed(2),
       parcela.atual,
       parcela.total
