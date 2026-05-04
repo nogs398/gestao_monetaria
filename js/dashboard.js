@@ -828,32 +828,33 @@ function parseItauPDF(text) {
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
 
-  let startIdx = text.search(/Lançamentos:\s*compras\s*e\s*saques/i);
+  let cleanText = text
+    .replace(/\*\*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  if (startIdx === -1) {
-    startIdx = text.search(/DATA\s+ESTABELECIMENTO\s+VALOR\s+EM\s+R\$/i);
+  const startMatch = cleanText.match(/Lançamentos:\s*compras\s*e\s*saques/i);
+
+  if (!startMatch) {
+    showToast('Não achei a seção de lançamentos atuais do Itaú.', 'error');
+    return [];
   }
 
-  if (startIdx === -1) {
-    startIdx = 0;
-  }
+  const startIdx = startMatch.index;
 
-  const endCandidates = [
-    text.search(/Compras\s+parceladas\s*-\s*próximas\s+faturas/i),
-    text.search(/Lançamentos\s+no\s+cartão/i),
-    text.search(/Total\s+dos\s+lançamentos\s+atuais/i),
-    text.search(/Limites\s+de\s+crédito/i),
-    text.search(/Encargos\s+cobrados/i)
-  ].filter(idx => idx !== -1 && idx > startIdx);
+  const afterStart = cleanText.substring(startIdx);
 
-  const endIdx = endCandidates.length
-    ? Math.min(...endCandidates)
-    : text.length;
+  const endMatch = afterStart.match(
+    /Compras\s+parceladas\s*-\s*próximas\s+faturas|Lançamentos\s+no\s+cartão|Total\s+dos\s+lançamentos\s+atuais|Limites\s+de\s+crédito|Encargos\s+cobrados/i
+  );
 
-  const section = text.substring(startIdx, endIdx);
+  const section = endMatch
+    ? afterStart.substring(0, endMatch.index)
+    : afterStart;
 
   const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
 
+  const seen = new Set();
   let match;
 
   while ((match = lineRegex.exec(section)) !== null) {
@@ -870,6 +871,31 @@ function parseItauPDF(text) {
 
     if (!desc) continue;
 
+    // Ignora pagamentos e linhas de resumo
+    if (
+      /pagamento|total|saldo|limite|fatura anterior|pagamentos efetuados|valor em r\$|data estabelecimento/i
+        .test(desc)
+    ) {
+      continue;
+    }
+
+    // Ignora encargos, juros e multa para não bater fatura com juros
+    // Se quiser bater exatamente o total Itaú, depois a gente libera isso.
+    if (
+      /encargos|juros|multa|iof|rotativo|refinanciament/i
+        .test(desc)
+    ) {
+      continue;
+    }
+
+    // Segurança extra: se por algum motivo pegou seção futura, ignora
+    if (
+      /próximas faturas|proximas faturas|próxima fatura|proxima fatura|demais faturas/i
+        .test(desc)
+    ) {
+      continue;
+    }
+
     let year = refYear;
     const mon = parseInt(month, 10);
 
@@ -882,6 +908,17 @@ function parseItauPDF(text) {
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
 
+    const key = [
+      date,
+      desc.toLowerCase(),
+      val.toFixed(2),
+      parcela.atual,
+      parcela.total
+    ].join('|');
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+
     items.push({
       date,
       title: desc,
@@ -891,9 +928,14 @@ function parseItauPDF(text) {
     });
   }
 
+  console.log('ITAU - itens importados:', items);
+  console.log(
+    'ITAU - total importado:',
+    items.reduce((s, i) => s + i.amount, 0)
+  );
+
   return items;
 }
-
 
 function showBadge(label) {
   const badge = document.getElementById('import-source-badge');
