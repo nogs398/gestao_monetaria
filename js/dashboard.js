@@ -1256,6 +1256,8 @@ function parseExtratoCSV(text) {
   const lines = text.trim().split('\n');
   const gastos = [], receitas = [];
   const header = lines[0].toLowerCase();
+  const mesRef = document.getElementById('extrato-mes').value;
+
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1265,9 +1267,13 @@ function parseExtratoCSV(text) {
 
     // Nubank: date, title, amount (negativo = pix/crédito recebido)
     if (header.includes('date') && header.includes('title')) {
-      const [date, title, amtStr] = cols;
-      const val = parseFloat(amtStr);
-      if (isNaN(val)) continue;
+      const [dateRaw, title, amtStr] = cols;
+      const date = normalizarDataExtrato(dateRaw, mesRef);
+
+      if (!date || !dataPertenceAoMes(date, mesRef)) continue;
+
+      const val = parseValorBR(amtStr);
+      if (isNaN(val)) continue
       if (val < 0) {
         // crédito (ex: pagamento fatura, pix recebido)
         receitas.push({ date, title, amount: Math.abs(val), categoria: detectCatReceita(title) });
@@ -1276,10 +1282,22 @@ function parseExtratoCSV(text) {
       }
     } else {
       // Formato genérico: tenta achar valor e sentido
-      const [date, title, amtStr, tipo] = cols;
-      const val = Math.abs(parseFloat((amtStr||'').replace(',','.')));
+      const [dateRaw, title, amtStr, tipo] = cols;
+      const date = normalizarDataExtrato(dateRaw, mesRef);
+
+      if (!date || !dataPertenceAoMes(date, mesRef)) continue;
+
+      const valOriginal = parseValorBR(amtStr);
+      const val = Math.abs(valOriginal);
       if (isNaN(val) || val === 0) continue;
-      const isCredito = (tipo||'').toLowerCase().includes('créd') || (tipo||'').toLowerCase().includes('receb') || val < 0;
+      const isCredito =
+      valOriginal > 0 &&
+      (
+          (tipo || '').toLowerCase().includes('créd') ||
+          (tipo || '').toLowerCase().includes('receb') ||
+          (tipo || '').toLowerCase().includes('entrada') ||
+          !tipo
+      );
       if (isCredito) {
         receitas.push({ date, title, amount: val, categoria: detectCatReceita(title) });
       } else {
@@ -1291,38 +1309,149 @@ function parseExtratoCSV(text) {
 }
 
 // Parse extrato PDF — texto livre
+
 function parseExtratoText(text, _tipo) {
-  const gastos = [], receitas = [];
-  // Pattern: DD/MM DESCRIPTION VALUE com sinal ou palavra Créd/Déb
-  const re = /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
-  const mesRef = document.getElementById('extrato-mes').value;
-  const [refYear] = mesRef.split('-').map(Number);
-  let match;
-  while ((match = re.exec(text)) !== null) {
-    const datePart = match[1];
-    let desc = match[2].trim();
-    const valStr = match[3].replace('.','').replace(',','.');
-    const val = parseFloat(valStr);
-    if (isNaN(val) || val <= 0) continue;
-    if (/saldo|limite|total|fatura|vencimento|encargo|iof|juros|multa/i.test(desc)) continue;
+    const gastos = [];
+    const receitas = [];
 
-    // Parse date
-    const parts = datePart.split('/');
-    const day = parts[0], mon = parts[1];
-    const year = parts[2] ? (parts[2].length === 2 ? '20'+parts[2] : parts[2]) : refYear;
-    const date = `${year}-${mon}-${day}`;
+    const mesRef = document.getElementById('extrato-mes').value;
 
-    // Detect credit vs debit from context around the match
-    const ctx = text.substring(Math.max(0, match.index-30), match.index+match[0].length+30);
-    const isCredito = /créd|crédito|recebid|pix rec|transfer.*rec|salário|salario|adiant/i.test(ctx+desc);
+    const cleanText = String(text || '')
+        .replace(/\*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    if (isCredito) {
-      receitas.push({ date, title: desc, amount: val, categoria: detectCatReceita(desc) });
-    } else {
-      gastos.push({ date, title: desc, amount: val, categoria: detectCategoria(desc) });
+    /*
+        Captura linhas do Itaú nesse formato:
+
+        04/05/2026 PIX TRANSF GABRIEL01/05 -100,00
+        29/04/2026 REMUNERACAO/SALARIO 1.664,46
+
+        Grupo 1: data
+        Grupo 2: descrição
+        Grupo 3: valor com ou sem sinal negativo
+    */
+    const re = /(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?\s*\d{1,3}(?:\.\d{3})*,\d{2})(?=\s+\d{2}\/\d{2}\/\d{4}|\s+Aviso|\s*$)/g;
+
+    let match;
+
+    while ((match = re.exec(cleanText)) !== null) {
+        const dateRaw = match[1];
+        let desc = match[2].trim();
+        const valorRaw = match[3];
+
+        const date = normalizarDataExtrato(dateRaw, mesRef);
+        if (!date) continue;
+
+        // Filtra pelo mês selecionado no modal.
+        // Ex: se selecionou 2026-05, só entra data 2026-05.
+        if (!dataPertenceAoMes(date, mesRef)) continue;
+
+        if (deveIgnorarLinhaExtrato(desc)) continue;
+        if (deveIgnorarPagamentoFatura(desc)) continue;
+
+        const valor = parseValorBR(valorRaw);
+        if (isNaN(valor) || valor === 0) continue;
+
+        desc = desc.replace(/\s+/g, ' ').trim();
+
+        if (valor < 0) {
+            gastos.push({
+                date,
+                title: desc,
+                amount: Math.abs(valor),
+                categoria: detectCategoria(desc)
+            });
+        } else {
+            receitas.push({
+                date,
+                title: desc,
+                amount: valor,
+                categoria: detectCatReceita(desc)
+            });
+        }
     }
-  }
-  return { gastos, receitas };
+
+    return { gastos, receitas };
+}
+
+
+function parseValorBR(valorStr) {
+    if (!valorStr) return 0;
+
+    const clean = valorStr
+        .replace(/\*/g, '')
+        .replace(/\s/g, '')
+        .replace(/\./g, '')
+        .replace(',', '.');
+
+    return parseFloat(clean);
+}
+
+function normalizarDataExtrato(dateStr, mesRefFallback) {
+    if (!dateStr) return null;
+
+    const clean = dateStr.trim();
+
+    // Já está no formato YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+        return clean;
+    }
+
+    // Formato DD/MM/YYYY
+    const full = clean.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (full) {
+        const [, dd, mm, yyyy] = full;
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    // Formato DD/MM
+    const short = clean.match(/^(\d{2})\/(\d{2})$/);
+    if (short) {
+        const [, dd, mm] = short;
+        const [yyyy] = mesRefFallback.split('-');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    return null;
+}
+
+function dataPertenceAoMes(dateISO, mesRef) {
+    if (!dateISO || !mesRef) return false;
+    return dateISO.substring(0, 7) === mesRef;
+}
+
+function deveIgnorarLinhaExtrato(desc) {
+    const d = (desc || '').toLowerCase();
+
+    return (
+        /saldo do dia/i.test(d) ||
+        /saldo em conta/i.test(d) ||
+        /limite da conta/i.test(d) ||
+        /total contratado/i.test(d) ||
+        /extrato conta/i.test(d) ||
+        /lançamentos/i.test(d) ||
+        /periodo de visualização/i.test(d) ||
+        /período de visualização/i.test(d)
+    );
+}
+
+function deveIgnorarPagamentoFatura(desc) {
+    const d = (desc || '').toLowerCase();
+
+    /*
+        Importante:
+        Se você já importa a fatura do cartão separada,
+        pagamento de fatura no extrato bancário precisa ser ignorado,
+        senão duplica despesa.
+    */
+    return (
+        /fatura paga/i.test(d) ||
+        /faturaitau/i.test(d) ||
+        /fatura itau/i.test(d) ||
+        /itau platinu/i.test(d) ||
+        /itau multipl/i.test(d)
+    );
 }
 
 function detectCatReceita(desc) {
