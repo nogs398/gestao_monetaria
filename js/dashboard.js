@@ -822,59 +822,78 @@ async function parsePDF(file) {
   }
 }
 
+
 function parseItauPDF(text) {
   const items = [];
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
-  
-  const startMarkers = ['Lançamentos: compras', 'LANÇAMENTOS', 'Lançamentos no cartão', 'DATA ESTABELECIMENTO'];
-  const endMarkers = ['Total dos lançamentos', 'Limites de crédito', 'Encargos cobrados'];
 
-  let startIdx = -1;
-  for (const m of startMarkers) {
-    const idx = text.indexOf(m);
-    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) startIdx = idx;
-  }
-  if (startIdx === -1) startIdx = 0;
+  let startIdx = text.search(/Lançamentos:\s*compras\s*e\s*saques/i);
 
-  let endIdx = text.length;
-  for (const m of endMarkers) {
-    const idx = text.indexOf(m, startIdx + 10);
-    if (idx !== -1 && idx < endIdx) endIdx = idx;
+  if (startIdx === -1) {
+    startIdx = text.search(/DATA\s+ESTABELECIMENTO\s+VALOR\s+EM\s+R\$/i);
   }
+
+  if (startIdx === -1) {
+    startIdx = 0;
+  }
+
+  const endCandidates = [
+    text.search(/Compras\s+parceladas\s*-\s*próximas\s+faturas/i),
+    text.search(/Lançamentos\s+no\s+cartão/i),
+    text.search(/Total\s+dos\s+lançamentos\s+atuais/i),
+    text.search(/Limites\s+de\s+crédito/i),
+    text.search(/Encargos\s+cobrados/i)
+  ].filter(idx => idx !== -1 && idx > startIdx);
+
+  const endIdx = endCandidates.length
+    ? Math.min(...endCandidates)
+    : text.length;
 
   const section = text.substring(startIdx, endIdx);
+
   const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
+
   let match;
 
   while ((match = lineRegex.exec(section)) !== null) {
     const day = match[1];
     const month = match[2];
     let desc = match[3].trim();
-    const valStr = match[4].replace('.', '').replace(',', '.');
+
+    const valStr = match[4].replace(/\./g, '').replace(',', '.');
     const val = parseFloat(valStr);
 
     if (isNaN(val) || val <= 0) continue;
-    if (/juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i.test(desc)) continue;
 
-    //desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
     desc = desc.replace(/\s+/g, ' ').trim();
 
     if (!desc) continue;
 
     let year = refYear;
-    const mon = parseInt(month);
-    if (mon > refMonth + 1) year = refYear - 1;
+    const mon = parseInt(month, 10);
 
-    const date = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+    if (mon > refMonth + 1) {
+      year = refYear - 1;
+    }
+
+    const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
 
-    items.push({ date, title: desc, amount: val, parcela, categoria });
+    items.push({
+      date,
+      title: desc,
+      amount: val,
+      parcela,
+      categoria
+    });
   }
 
   return items;
 }
+
 
 function showBadge(label) {
   const badge = document.getElementById('import-source-badge');
