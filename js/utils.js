@@ -71,8 +71,6 @@ function openModal(id) {
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
-
-// Parse parcelas from description: "Produto - Parcela 3/12" → {atual: 3, total: 12}
 // Parse parcelas from description:
 // Nubank: "Produto - Parcela 3/12"
 // Itaú:   "Shopee*SHOPEE* 04/12"
@@ -117,21 +115,6 @@ function parseParcela(desc) {
     total: 1
   };
 }
-
-// Detect category from description
-function detectCategoria(desc) {
-  const d = desc.toLowerCase();
-  if (/ifood|rappi|uber eats|spoleto|mcdonalds|burger|pizza|restaur|lanch|bar |cafe|cafet|padaria|mercado|supermer|hortifruti|açougue|bonzao/.test(d)) return 'Alimentação';
-  if (/spotify|netflix|prime|disney|hbo|globo|youtube|apple\.com|icloud|nubank\+|plano|assinatura/.test(d)) return 'Assinaturas';
-  if (/uber|99|taxi|gasolina|combustiv|posto|onibus|metro|estacion|pedágio/.test(d)) return 'Transporte';
-  if (/farmacia|drogaria|medic|saude|dental|hospital|clinica|plano\s*saude/.test(d)) return 'Saúde';
-  if (/escola|facul|curso|uniasselvi|univer|edu|learning/.test(d)) return 'Educação';
-  if (/amazon|shopee|aliexpress|mercadol|americanas|magalu|kabum|lojas/.test(d)) return 'Compras';
-  if (/hotel|airbnb|booking|viagem|passagem|aeroporto/.test(d)) return 'Lazer';
-  if (/gym|academia|wellhub|smart\s*fit/.test(d)) return 'Saúde';
-  return 'Outros';
-}
-
 function populateMonthSelect(selectId, value) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = '';

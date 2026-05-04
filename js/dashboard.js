@@ -823,162 +823,85 @@ async function parsePDF(file) {
 }
 
 
+
 function parseItauPDF(text) {
   const items = [];
   const mesRef = document.getElementById('import-mes').value;
   const [refYear, refMonth] = mesRef.split('-').map(Number);
 
-  const cleanText = (text || '')
-    .replace(/\*\*/g, ' ')
-    .replace(/[“”]/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const normalizeText = (s) => (s || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  const norm = normalizeText(cleanText);
-
-  // 1) Começar obrigatoriamente na seção de lançamentos atuais
   const startMarkers = [
-    'lancamentos: compras e saques',
-    'lancamentos compras e saques'
+    'Lançamentos: compras',
+    'LANÇAMENTOS',
+    'Lançamentos no cartão',
+    'DATA ESTABELECIMENTO'
+  ];
+
+  const endMarkers = [
+    'Total dos lançamentos',
+    'Limites de crédito',
+    'Encargos cobrados'
   ];
 
   let startIdx = -1;
 
   for (const marker of startMarkers) {
-    const idx = norm.indexOf(marker);
-    if (idx !== -1) {
+    const idx = text.indexOf(marker);
+
+    if (idx !== -1 && (startIdx === -1 || idx < startIdx)) {
       startIdx = idx;
-      break;
     }
   }
 
-  // Fallback: começa no primeiro lançamento após o cabeçalho DATA ESTABELECIMENTO
-  if (startIdx === -1) {
-    const headerIdx = norm.indexOf('data estabelecimento valor em r');
-    if (headerIdx !== -1) {
-      const afterHeader = cleanText.substring(headerIdx);
-      const firstTransaction = afterHeader.match(/\d{2}\/\d{2}\s+[A-Za-z0-9]/);
-      if (firstTransaction) {
-        startIdx = headerIdx + firstTransaction.index;
-      }
-    }
-  }
+  if (startIdx === -1) startIdx = 0;
 
-  if (startIdx === -1) {
-    showToast('Não achei a seção de lançamentos atuais do Itaú.', 'error');
-    console.warn('Texto Itaú extraído:', cleanText);
-    return [];
-  }
-
-  // 2) Cortar ANTES dos totais e ANTES da seção "próximas faturas"
-  // Isso evita importar parcelas futuras como se fossem da fatura atual.
-  const endMarkers = [
-    'lancamentos no cartao',
-    'total dos lancamentos atuais',
-    'compras parceladas - proximas faturas',
-    'compras parceladas proximas faturas',
-    'proxima fatura',
-    'demais faturas',
-    'total para proximas faturas',
-    'limites de credito',
-    'encargos cobrados nesta fatura'
-  ];
-
-  let endIdx = cleanText.length;
+  let endIdx = text.length;
 
   for (const marker of endMarkers) {
-    const idx = norm.indexOf(marker, startIdx + 1);
+    const idx = text.indexOf(marker, startIdx + 10);
+
     if (idx !== -1 && idx < endIdx) {
       endIdx = idx;
     }
   }
 
-  let section = cleanText.substring(startIdx, endIdx);
+  const section = text.substring(startIdx, endIdx);
 
-  // Remove cabeçalhos/sujeiras que o PDF pode jogar no meio
-  section = section
-    .replace(/GUILHERME\s+N\s+FERREIRA/gi, ' ')
-    .replace(/DATA\s+ESTABELECIMENTO\s+VALOR\s+EM\s+R\$?/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+([\d]{1,3}(?:\.\d{3})*,\d{2})/g;
 
-  // Captura lançamentos tipo:
-  // 02/01 Shopee*SHOPEE* 04/12 333,25
-  // 26/04 JUROS DE MORA 0,59
-  const lineRegex = /(\d{2})\/(\d{2})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})(?=\s+\d{2}\/\d{2}\s+|$)/g;
-
-  const seen = new Set();
   let match;
 
   while ((match = lineRegex.exec(section)) !== null) {
     const day = match[1];
     const month = match[2];
+    let desc = match[3].trim();
 
-    let desc = match[3]
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const val = parseFloat(
-      match[4]
-        .replace(/\./g, '')
-        .replace(',', '.')
-    );
+    const valStr = match[4].replace(/\./g, '').replace(',', '.');
+    const val = parseFloat(valStr);
 
     if (isNaN(val) || val <= 0) continue;
+
+    if (
+      /juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i
+        .test(desc)
+    ) {
+      continue;
+    }
+
+    desc = desc.replace(/\s+/g, ' ').trim();
+
     if (!desc) continue;
-
-    const descNorm = normalizeText(desc);
-
-    // Segurança extra: se por algum motivo vier texto de futuras, ignora
-    if (
-      /compras parceladas|proximas faturas|proxima fatura|demais faturas|total para proximas faturas/i
-        .test(descNorm)
-    ) {
-      continue;
-    }
-
-    // Ignora pagamentos e resumos
-    if (
-      /pagamento|pagamentos efetuados|total dos pagamentos|saldo|limite|fatura anterior|data estabelecimento|valor em r/i
-        .test(descNorm)
-    ) {
-      continue;
-    }
-
-    // Se você NÃO quiser importar encargos/juros/multa, descomenta esse bloco:
-    /*
-    if (/encargos|juros|multa|iof|rotativo|refinanciament|financiamento|moratorio/i.test(descNorm)) {
-      continue;
-    }
-    */
 
     let year = refYear;
     const mon = parseInt(month, 10);
 
-    // Ex: fatura referência maio pode ter compras de dezembro/janeiro
     if (mon > refMonth + 1) {
       year = refYear - 1;
     }
 
     const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
     const parcela = parseParcela(desc);
     const categoria = detectCategoria(desc);
-
-    const key = [
-      date,
-      descNorm,
-      val.toFixed(2),
-      parcela.atual,
-      parcela.total
-    ].join('|');
-
-    if (seen.has(key)) continue;
-    seen.add(key);
 
     items.push({
       date,
@@ -989,12 +912,9 @@ function parseItauPDF(text) {
     });
   }
 
-  console.log('ITAU SECTION USADA:', section);
-  console.log('ITAU ITENS:', items);
-  console.log('ITAU TOTAL:', items.reduce((s, i) => s + i.amount, 0));
-
   return items;
 }
+
 
 function showBadge(label) {
   const badge = document.getElementById('import-source-badge');
