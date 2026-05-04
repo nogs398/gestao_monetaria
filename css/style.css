@@ -750,6 +750,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 }
 
 @media (max-width: 900px) {
+   #hamburger {
+        display: inline-flex !important;
+    }
   .sidebar { transform: translateX(-100%); }
   .sidebar.open { transform: translateX(0); }
   .main { margin-left: 0; }

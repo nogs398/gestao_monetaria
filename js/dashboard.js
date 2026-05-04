@@ -92,9 +92,18 @@ const PAGE_CONFIG = {
 };
 
 function navigate(page) {
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
-  renderPage(page);
+    document.querySelectorAll('.nav-item').forEach(el => {
+        el.classList.remove('active');
+    });
+
+    document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
+
+    const sidebar = document.getElementById('sidebar');
+    if (window.innerWidth <= 900 && sidebar) {
+        sidebar.classList.remove('open');
+    }
+
+    renderPage(page);
 }
 
 function renderPage(page) {
@@ -129,6 +138,13 @@ function onMonthChange() {
   currentMes = document.getElementById('month-select').value;
   const active = document.querySelector('.nav-item.active')?.dataset?.page || 'dashboard';
   renderPage(active);
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
+    sidebar.classList.toggle('open');
 }
 
 // =============================================
