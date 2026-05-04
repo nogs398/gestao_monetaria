@@ -9,6 +9,7 @@ let allFaturas = [];
 let allReceitas = [];
 let allGastos = [];
 let chartCat = null;
+let activeCategoryFilter = null;
 let chartMensal = null;
 let selectedColor = CARD_COLORS[0];
 let csvParsed = [];
@@ -216,61 +217,193 @@ function renderDashboard() {
 }
 
 function renderTopGastos(faturasMes, gastosMes) {
-  const tbody = document.getElementById('top-gastos-list');
-  const combined = [
-    ...faturasMes.map(f => ({ ...f, _origem: 'fatura' })),
-    ...gastosMes.map(g => ({ ...g, _origem: 'gasto', cartao_id: null }))
-  ].sort((a, b) => Number(b.valor) - Number(a.valor)).slice(0, 10);
+    const tbody = document.getElementById('top-gastos-list');
 
-  if (!combined.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="empty-icon">📭</span><p>Nenhum gasto no mês</p></div></td></tr>`;
-    return;
-  }
+    const header = tbody
+        ?.closest('.card')
+        ?.querySelector('.section-header');
 
-  tbody.innerHTML = combined.map(item => {
-    const cartao = allCartoes.find(c => c.id === item.cartao_id);
-    const parcela = item.parcela_total > 1 ? `<span class="badge badge-parcela">${item.parcela_atual}/${item.parcela_total}</span>` : '';
-    return `<tr>
-      <td>${fmtDate(item.data)}</td>
-      <td>${item.descricao} ${parcela}</td>
-      <td><span class="badge badge-categoria">${item.categoria || 'Outros'}</span></td>
-      <td>${cartao ? `<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:50%;background:${cartao.cor}"></span>${cartao.nome}</span>` : '—'}</td>
-      <td style="text-align:right;color:var(--red);font-weight:600">${fmtBRL(item.valor)}</td>
-    </tr>`;
-  }).join('');
+    if (header) {
+        header.innerHTML = `
+            <h3>
+                Maiores gastos do mês
+                ${
+                    activeCategoryFilter
+                        ? `<span class="badge badge-parcela" style="margin-left:8px;">
+                            ${activeCategoryFilter}
+                           </span>`
+                        : ''
+                }
+            </h3>
+
+            ${
+                activeCategoryFilter
+                    ? `<button class="btn btn-ghost btn-sm" onclick="clearCategoryFilter()">
+                        Limpar filtro
+                       </button>`
+                    : ''
+            }
+        `;
+    }
+
+    let combined = [
+        ...faturasMes.map(f => ({ ...f, _origem: 'fatura' })),
+        ...gastosMes.map(g => ({
+            ...g,
+            _origem: 'gasto',
+            cartao_id: null,
+            parcela_total: 1,
+            parcela_atual: 1
+        }))
+    ];
+
+    if (activeCategoryFilter) {
+        combined = combined.filter(
+            item => (item.categoria || 'Outros') === activeCategoryFilter
+        );
+    }
+
+    combined = combined
+        .sort((a, b) => Number(b.valor) - Number(a.valor))
+        .slice(0, activeCategoryFilter ? 100 : 10);
+
+    if (!combined.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5">
+                    <div class="empty-state">
+                        <span class="empty-icon">📭</span>
+                        <p>Nenhum gasto encontrado para esse filtro</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = combined.map(item => {
+        const cartao = allCartoes.find(c => c.id === item.cartao_id);
+        const categoria = item.categoria || 'Outros';
+        const categoriaSafe = categoria.replace(/'/g, "\\'");
+
+        const parcela = item.parcela_total > 1
+            ? `<span class="badge badge-parcela">${item.parcela_atual}/${item.parcela_total}</span>`
+            : '';
+
+        return `
+            <tr>
+                <td>${item.descricao} ${parcela}</td>
+
+                <td>
+                    <span
+                        class="badge badge-categoria"
+                        style="cursor:pointer;"
+                        onclick="openCatModal(${item.id}, '${categoriaSafe}', '${item._origem}')"
+                        title="Clique para editar"
+                    >
+                        ${categoria} ✏️
+                    </span>
+                </td>
+
+                <td>${fmtDate(item.data)}</td>
+
+                <td>
+                    ${
+                        cartao
+                            ? `<span style="display:inline-flex;align-items:center;gap:5px;">
+                                <span style="width:8px;height:8px;border-radius:50%;background:${cartao.cor}"></span>
+                                ${cartao.nome}
+                               </span>`
+                            : item._origem === 'gasto'
+                                ? 'Gasto manual'
+                                : '—'
+                    }
+                </td>
+
+                <td style="text-align:right;color:var(--red);font-weight:600">
+                    ${fmtBRL(item.valor)}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+function clearCategoryFilter() {
+    activeCategoryFilter = null;
+
+    const faturasMes = getFaturasDoMes(currentMes);
+    const gastosMes = allGastos.filter(
+        g => getMesRefFromGasto(g) === currentMes
+    );
+
+    renderTopGastos(faturasMes, gastosMes);
 }
 
 function renderChartCat(faturasMes, gastosMes) {
-  const all = [...faturasMes, ...gastosMes];
-  const cats = {};
-  all.forEach(item => {
-    const cat = item.categoria || 'Outros';
-    cats[cat] = (cats[cat] || 0) + Number(item.valor);
-  });
+    const all = [...faturasMes, ...gastosMes];
+    const cats = {};
 
-  const labels = Object.keys(cats);
-  const values = Object.values(cats);
-  const colors = labels.map(l => CATEGORY_COLORS[l] || '#6B7599');
+    all.forEach(item => {
+        const cat = item.categoria || 'Outros';
+        cats[cat] = (cats[cat] || 0) + Number(item.valor);
+    });
 
-  if (chartCat) chartCat.destroy();
-  const ctx = document.getElementById('chart-cat');
-  chartCat = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels,
-      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#111521' }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right', labels: { color: '#6B7599', font: { size: 12 }, padding: 12 } },
-        tooltip: { callbacks: { label: ctx => ` ${fmtBRL(ctx.raw)}` } }
-      },
-      cutout: '65%'
-    }
-  });
+    const labels = Object.keys(cats);
+    const values = Object.values(cats);
+    const colors = labels.map(l => CATEGORY_COLORS[l] || '#6B7599');
+
+    if (chartCat) chartCat.destroy();
+
+    const ctx = document.getElementById('chart-cat');
+
+    chartCat = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#111521'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            onClick: (event, elements, chart) => {
+                if (!elements.length) return;
+
+                const index = elements[0].index;
+                const categoria = chart.data.labels[index];
+
+                activeCategoryFilter =
+                    activeCategoryFilter === categoria ? null : categoria;
+
+                const faturasMesAtual = getFaturasDoMes(currentMes);
+                const gastosMesAtual = allGastos.filter(
+                    g => getMesRefFromGasto(g) === currentMes
+                );
+
+                renderTopGastos(faturasMesAtual, gastosMesAtual);
+            },
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        color: '#6B7599',
+                        font: { size: 12 },
+                        padding: 12
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${fmtBRL(ctx.raw)}`
+                    }
+                }
+            }
+        }
+    });
 }
-
 function renderChartMensal() {
   // Show last 6 months
   const months = [];
@@ -357,7 +490,7 @@ function renderFaturasList() {
       <td>${item.descricao}</td>
       <td>${cartao ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;"><span style="width:8px;height:8px;border-radius:50%;background:${cartao.cor}"></span>${cartao.nome}</span>` : '—'}</td>
       <td>
-        <span class="badge badge-categoria" style="cursor:pointer;" onclick="openCatModal(${item.id}, '${item.categoria || 'Outros'}')">
+        <span class="badge badge-categoria" style="cursor:pointer;" onclick="openCatModal(${item.id}, '${item.categoria || 'Outros'}', 'fatura')">
           ${item.categoria || 'Outros'} ✏️
         </span>
       </td>
@@ -666,7 +799,15 @@ function renderGastos() {
   tbody.innerHTML = gastosMes.map(g => `
     <tr>
       <td>${g.descricao}</td>
-      <td><span class="badge badge-categoria">${g.categoria}</span></td>
+      <td>
+          <span
+              class="badge badge-categoria"
+              style="cursor:pointer;"
+              onclick="openCatModal(${g.id}, '${g.categoria || 'Outros'}', 'gasto')"
+          >
+              ${g.categoria || 'Outros'} ✏️
+          </span>
+      </td>
       <td>${fmtDate(g.data)}</td>
       <td style="text-align:right;color:var(--red);font-weight:600;">${fmtBRL(g.valor)}</td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteGasto(${g.id})">✕</button></td>
@@ -708,22 +849,51 @@ async function deleteGasto(id) {
 // =============================================
 // MODAL CATEGORIA
 // =============================================
-function openCatModal(itemId, catAtual) {
-  document.getElementById('cat-item-id').value = itemId;
-  document.getElementById('cat-select').value = catAtual;
-  openModal('modal-categoria');
+
+function openCatModal(itemId, catAtual, tipo = 'fatura') {
+    document.getElementById('cat-item-id').value = itemId;
+    document.getElementById('cat-item-tipo').value = tipo;
+    document.getElementById('cat-select').value = catAtual || 'Outros';
+
+    openModal('modal-categoria');
 }
 
+
+
 async function saveCategoria() {
-  const id = parseInt(document.getElementById('cat-item-id').value);
-  const cat = document.getElementById('cat-select').value;
-  await client.from('faturas_itens').update({ categoria: cat }).eq('id', id);
-  const item = allFaturas.find(f => f.id === id);
-  if (item) item.categoria = cat;
-  closeModal('modal-categoria');
-  showToast('Categoria atualizada!');
-  renderFaturas();
+    const id = parseInt(document.getElementById('cat-item-id').value);
+    const tipo = document.getElementById('cat-item-tipo').value || 'fatura';
+    const cat = document.getElementById('cat-select').value;
+
+    const tabela = tipo === 'gasto' ? 'gastos' : 'faturas_itens';
+
+    const { error } = await client
+        .from(tabela)
+        .update({ categoria: cat })
+        .eq('id', id)
+        .eq('user_id', currentUser.id);
+
+    if (error) {
+        return showToast('Erro ao atualizar categoria: ' + error.message, 'error');
+    }
+
+    if (tipo === 'gasto') {
+        const item = allGastos.find(g => g.id === id);
+        if (item) item.categoria = cat;
+    } else {
+        const item = allFaturas.find(f => f.id === id);
+        if (item) item.categoria = cat;
+    }
+
+    closeModal('modal-categoria');
+    showToast('Categoria atualizada!');
+
+    const activePage =
+        document.querySelector('.nav-item.active')?.dataset?.page || 'dashboard';
+
+    renderPage(activePage);
 }
+
 
 // =============================================
 // IMPORT — CSV + PDF
