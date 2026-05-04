@@ -73,6 +73,9 @@ function closeModal(id) {
 }
 
 // Parse parcelas from description: "Produto - Parcela 3/12" → {atual: 3, total: 12}
+// Parse parcelas from description:
+// Nubank: "Produto - Parcela 3/12"
+// Itaú:   "Shopee*SHOPEE* 04/12"
 function parseParcela(desc) {
   const text = (desc || '').toUpperCase();
 
@@ -81,6 +84,8 @@ function parseParcela(desc) {
     /PARC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})/i,
     /PARCELA\s*(\d{1,2})\s*DE\s*(\d{1,2})/i,
     /PARC\.?\s*(\d{1,2})\s*DE\s*(\d{1,2})/i,
+
+    // Padrão Itaú: "04/12", "01/10", "05/12"
     /(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/i
   ];
 

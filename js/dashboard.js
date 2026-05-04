@@ -857,7 +857,9 @@ function parseItauPDF(text) {
     if (isNaN(val) || val <= 0) continue;
     if (/juros|multa|iof|cet|rotativo|financiado|pagamento|limite|saldo|total|encargo|taxa/i.test(desc)) continue;
 
-    desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
+    //desc = desc.replace(/\d{2}\/\d{2}\s*/g, '').trim();
+    desc = desc.replace(/\s+/g, ' ').trim();
+
     if (!desc) continue;
 
     let year = refYear;
